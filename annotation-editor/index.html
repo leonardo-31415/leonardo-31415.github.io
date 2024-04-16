@@ -240,8 +240,9 @@
         });
         lime.canvas.addLayer('hsh', layer0);
 
-        let layer1 = new OpenLIME.LayerSvgAnnotation({ 
+        let layer1 = new OpenLIME.LayerAnnotation({ 
             label: 'Annotations',
+            type: 'svg_annotations',
             layout: layer0.layout,
             style:` 
                 .openlime-annotation { pointer-events:all; opacity: 0.7; }
