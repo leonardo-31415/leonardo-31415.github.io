@@ -6,8 +6,8 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OpenLIME - Annotation Editor</title>
-    <link rel="stylesheet" href="../../css/skin.css" />
-    <link rel="stylesheet" href="../examples.css" />
+    <link rel="stylesheet" href="css/skin.css" />
+    <link rel="stylesheet" href="examples.css" />
     <style>
         html,
         body {
@@ -76,7 +76,7 @@
     <!-- Web page -->
     <h1 class="headline">OpenLIME - Annotation Editor</h1>
     <div class="openlime"></div>
-    <script src="../../js/openlime.js"></script>
+    <script src="js/openlime.js"></script>
     <script>
         // Check URL parameters
         const urlParams = new URLSearchParams(window.location.search);
@@ -87,7 +87,7 @@
         lime.camera.bounded = false;
 
         // Fetch a (custom) skin. A skin is a set of visual elements for the web page.
-        OpenLIME.Skin.setUrl('../../skin/skin.svg');
+        OpenLIME.Skin.setUrl('skin/skin.svg');
 
         // Create a custom dialog
         let openlime = document.querySelector('.openlime');
@@ -99,7 +99,7 @@
             type: 'image',
             layout: 'deepzoom',
             //url: 'https://ome-digipath-demo.crs4.it/ome_seadragon/deepzoom/get/7.dzi',
-            url: '../../assets/test/test.dzi'
+            url: 'assets/test/test.dzi'
         });
         lime.addLayer('Base', layer);
 
