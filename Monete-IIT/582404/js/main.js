@@ -265,6 +265,7 @@ function main(){
     ui.actions.rotate.display = true;
     // ui.actions.ruler.display = true;
     ui.actions.help.display = true;
+    ui.actions.help.html = '<p>Description:<br>Gallienus. Antoninianus. Roma (260-8 CE). RIC V.1, p. 155, nº 280. Obv: Radiate bust of the emperor, r. – Rev: [SECVRIT PE]RPET. Securitas standing l., legs crossed, holding sceptre and leaning on column. H in r. field</p><p>Notes:<br>Foreseeable improvements in the reading of legends and iconographic types</p>';
     ui.actions.snapshot.display = true;
     lime.camera.maxFixedZoom = 1;
     window.lime = lime;

@@ -265,6 +265,7 @@ function main(){
     ui.actions.rotate.display = true;
     // ui.actions.ruler.display = true;
     ui.actions.help.display = true;
+    ui.actions.help.html = '<p>Description:<br>AE. Obv: bust of the emperor r. – Rev: illegible</p><p>Notes:<br>Possible improvements in the reading of iconographic types</p>';
     ui.actions.snapshot.display = true;
     lime.camera.maxFixedZoom = 1;
     window.lime = lime;

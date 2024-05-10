@@ -265,6 +265,7 @@ function main(){
     ui.actions.rotate.display = true;
     // ui.actions.ruler.display = true;
     ui.actions.help.display = true;
+    ui.actions.help.html = '<p>Description:<br>Gordianus III. Sestertius. Roma (243-4 CE). RIC IV.3, p. 51, nº 331. Obv: IMP GORDIANVS. Laureate bust of the emperor r. – Rev: [FORTV]NA REDVX. Fortuna seated r. on throne, holding rudder on globe and cornucopiae</p><p>Notes:<br>Foreseeable improvements in the reading of legends and iconographic types</p>';
     ui.actions.snapshot.display = true;
     lime.camera.maxFixedZoom = 1;
     window.lime = lime;

@@ -265,6 +265,7 @@ function main(){
     ui.actions.rotate.display = true;
     // ui.actions.ruler.display = true;
     ui.actions.help.display = true;
+    ui.actions.help.html = '<p>Description:<br>Claudius II. Antoninianus. Siscia (268-70 CE). RIC V.1, p. 227, nº 193. Obv: [IMP CLAV]DIVS AVG. Radiate cuirassed, bearded bust of the emperor, r. – Rev: [VBERITAS AVG]. Uberitas standing l. holding purse and cornucopiae</p><p>Notes:<br>Foreseeable improvements in the reading of legends and iconographic types</p>';
     ui.actions.snapshot.display = true;
     lime.camera.maxFixedZoom = 1;
     window.lime = lime;

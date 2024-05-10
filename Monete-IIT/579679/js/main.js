@@ -265,6 +265,7 @@ function main(){
     ui.actions.rotate.display = true;
     // ui.actions.ruler.display = true;
     ui.actions.help.display = true;
+    ui.actions.help.html = '<p>Description:<br>Marcus Aurelius. Sestertius. Roma (161-2 CE). RIC III, p. 280, nº 840. Obv: IMP CAES M AVREL ANTONINVS AVG PM. Laureate head of Marcus Aurelius, r. – Rev: SALVTI AVGVSTOR TR P XVI COS III S C. Salus standing l., feeding snake twined around altar. COS III in exergue</p><p>Notes:<br>Foreseeable improvements in the reading of legends and iconographic types</p>'
     ui.actions.snapshot.display = true;
     lime.camera.maxFixedZoom = 1;
     window.lime = lime;

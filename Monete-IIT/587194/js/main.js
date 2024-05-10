@@ -265,6 +265,7 @@ function main(){
     ui.actions.rotate.display = true;
     // ui.actions.ruler.display = true;
     ui.actions.help.display = true;
+    ui.actions.help.html = '<p>Description:<br>AE. Obv: bust of the emperor r. – Rev: female (?) figure walking. No legend visible. In exergue, T?</p><p>Notes:<br>Probable improvements in the reading of iconographic types</p>';
     ui.actions.snapshot.display = true;
     lime.camera.maxFixedZoom = 1;
     window.lime = lime;

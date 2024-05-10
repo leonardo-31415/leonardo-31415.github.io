@@ -265,6 +265,7 @@ function main(){
     ui.actions.rotate.display = true;
     // ui.actions.ruler.display = true;
     ui.actions.help.display = true;
+    ui.actions.help.html = '<p>Description:<br>AE4. Aquileia (383-8 CE). RIC IX, p. 104, nº 47. Obv: diademed bust of the emperor r., illegible legend – Rev: Two victories facing each other holding wreaths and palms, illegible legend except in exergue SMAQP</p><p>Notes:<br>Foreseeable improvements in the reading of legends and iconographic types</p>';
     ui.actions.snapshot.display = true;
     lime.camera.maxFixedZoom = 1;
     window.lime = lime;

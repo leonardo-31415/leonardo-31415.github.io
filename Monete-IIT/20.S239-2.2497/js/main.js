@@ -265,6 +265,7 @@ function main(){
     ui.actions.rotate.display = true;
     // ui.actions.ruler.display = true;
     ui.actions.help.display = true;
+    ui.actions.help.html = '<p>Description:<br>Commodus. Denarius. Roma (183 CE). Obv: M COMMODVS ANTON AVG PIVS. Laureate head, r. – Rev: TR P VIII IMP VI COS III P P. Aequitas holding scales and cornucopiae</p><p>Notes:<br>Foreseeable improvements in the reading of legends and iconographic types</p>';
     ui.actions.snapshot.display = true;
     lime.camera.maxFixedZoom = 1;
     window.lime = lime;
