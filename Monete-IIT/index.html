@@ -38,14 +38,15 @@
 <script>
     let coinSelect = document.querySelector('#coin-select');
     coinSelect.addEventListener('change', (e) => {
-        console.log(e.target.value);
-        let a = document.createElement('a');
-        a.setAttribute('href', `https://leonardo-31415.github.io/Monete-IIT/${e.target.value}/`);
-        a.setAttribute('target', '_blank');
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        if (e.target.value != '') {
+            let a = document.createElement('a');
+            a.setAttribute('href', `https://leonardo-31415.github.io/Monete-IIT/${e.target.value}/`);
+            a.setAttribute('target', '_blank');
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
     });
 </script>
 
