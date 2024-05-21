@@ -2682,6 +2682,17 @@
     		// 	this.rasters.push(raster);
     		// }
     	}
+
+    	rotateLight(light) {
+    		let [x,y] = light;
+    		let r = Math.sqrt(x*x + y*y);
+    		if(r > 1) {
+    			x /= r;
+    			y /= r;
+    		}
+    		let rotated = Transform.rotate(x, y, 360 - this.worldRotation);
+    		return [rotated.x, rotated.y];
+    	}
     }
 
     Layer.prototype.types = {};
@@ -3412,7 +3423,7 @@
      * @param {Raster#Format} options.format='vec3' The color format of the image.
      */
 
-    class Raster {
+    class Raster$1 {
 
     	constructor(options) {
 
@@ -3929,7 +3940,7 @@ vec4 data(vec2 v_texcoord) {
 
     		const rasterFormat = this.format != null ? this.format : 'vec4';
     		for (let url of textureUrls) {
-    			let raster = new Raster({ format: rasterFormat }); //FIXME select format for GEO stuff
+    			let raster = new Raster$1({ format: rasterFormat }); //FIXME select format for GEO stuff
     			this.rasters.push(raster);
     		}
 
@@ -4666,7 +4677,7 @@ vec4 data(vec2 v_texcoord) {
                 }
 
                 for (let a of this.annotations) {
-                    let raster = new Raster({ format: rasterFormat });
+                    let raster = new Raster$1({ format: rasterFormat });
                     this.rasters.push(raster);
                 }
                 console.log("Set " + this.annotations.length + " annotations into layout");
@@ -4762,7 +4773,7 @@ vec4 data() {
     			throw "Missing options.url parameter";
 
     		const rasterFormat = this.format != null ? this.format : 'vec4';
-    		let raster = new Raster({ format: rasterFormat }); //FIXME select format for GEO stuff
+    		let raster = new Raster$1({ format: rasterFormat }); //FIXME select format for GEO stuff
 
     		this.rasters.push(raster);
 
@@ -7830,11 +7841,24 @@ void main() {
     					button: m,
     					mode: m,
     					layer: id,
+    					list: [],
     					onclick: () => { layer.setMode(m); },
     					status: () => layer.getMode() == m ? 'active' : '',
     				};
-    				if (m == 'specular' && layer.shader.setSpecularExp)
-    					mode.list = [{ slider: '', oninput: (e) => { layer.shader.setSpecularExp(e.target.value); } }];
+
+    				let shader = layer.neuralShader ? layer.neuralShader : layer.shader;
+
+    				if (m == 'specular' && shader.setSpecularExp)
+    					mode.list.push({ slider: '', oninput: (e) => { shader.setSpecularExp(e.target.value); } });
+
+    				if (m == 'multi light') {
+    					mode.list.push({ slider: '', value: 1, min: 1, max: 10, step: 1, oninput: (e) => { shader.numLights = e.target.value; } });
+    					if (shader.setLightIntensity)
+    						mode.list.push({ slider: '', value: 0.5, min: 0.0, max: 1.0, step: 0.1, oninput: (e) => { shader.setLightIntensity(e.target.value); layer.forceRelight(); layer.emit('update'); }});
+    				}
+
+    				if (m == 'albedo blend' && shader.setLightIntensity)
+    					mode.list.push({ slider: '', value: 0.5, min: 0.0, max: 1.0, step: 0.1, oninput: (e) => { shader.setLightIntensity(e.target.value); layer.forceRelight(); layer.emit('update'); }});
     				modes.push(mode);
     			}
 
@@ -8230,7 +8254,10 @@ void main() {
     			html += `<a href="#" ${id} ${group} ${layer} ${mode} ${tooltip} class="openlime-entry ${classes}">${entry.button}</a>`;
     		} else if ('slider' in entry) {
     			let value = ('value' in entry) ? entry['value'] : 50;
-    			html += `<input type="range" min="1" max="100" value="${value}" class="openlime-slider ${classes}" ${id}>`;
+    			let min = ('min' in entry) ? entry['min'] : 1;
+    			let max = ('max' in entry) ? entry['max'] : 100;
+    			let step = ('step' in entry) ? entry['step'] : 1;
+    			html += `<input type="range" min="${min}" max="${max}" value="${value}" step="${step}" class="openlime-slider ${classes}" ${id}>`;
     		}
 
     		if ('list' in entry) {
@@ -8464,6 +8491,759 @@ void main() {
     addSignals(UIBasic, 'lightdirection');
 
     /**
+     * Extends {@link Shader}, initialized with a relight .json (see:
+     * [relight on github]{@link https://github.com/cnr-isti-vclab/relight} for details).
+     * 
+     * Supported modes are
+     * light: relightable images depending on light direction
+     * normals: shows a normal map
+     * diffuse: remove albedo and display only the geometry with a white material.
+     * specular: specular enhancement
+     * 
+     * From the .json configuration the type of basis used: ('ptm', 'hsh', rbf', 'bln'), 
+     * and the colorspace ('lrgb', 'rgb', 'mrgb', 'mycc') along with all the other parameters.
+     * 
+     *  @param {object} options
+     * *compose*: compose operation: add, subtract, multiply, etc.
+     */
+
+    class ShaderRTI extends Shader {
+    	constructor(options) {
+    		super({});
+
+    		Object.assign(this, {
+    			modes: ['light', 'multi light', 'normals', 'diffuse', 'specular'],
+    			mode: 'normal',
+    			type:        ['ptm', 'hsh',  'sh', 'rbf', 'bln'],
+    			colorspaces: ['lrgb', 'rgb', 'mrgb', 'mycc'],
+
+    			nplanes: null,     //number of coefficient planes
+    			yccplanes: null,     //number of luminance planes for mycc color space
+    			njpegs: null,      //number of textures needed (ceil(nplanes/3))
+    			material: null,    //material parameters
+    			lights: null,      //light directions (needed for rbf interpolation)
+    			sigma: null,       //rbf interpolation parameter
+    			ndimensions: null, //PCA dimension space (for rbf and bln)
+
+    			scale: null,      //factor and bias are used to dequantize coefficient planes.
+    			bias: null,
+
+    			basis: null,       //PCA basis for rbf and bln
+    			lweights: null,    //light direction dependent coefficients to be used with coefficient planes
+
+    			numLights: 1,
+    		});
+    		Object.assign(this, options);
+
+    		if(this.relight)
+    			this.init(this.relight);
+
+    		this.setMode('light');
+    	}
+
+    	/*
+     * Set current rendering mode
+     * @param {string} mode one of 'light', 'normals', 'diffuse', 'specular'
+     * @param {number} dt in ms, interpolation duration.
+     */
+    	setMode(mode) {
+    		if(!(this.modes.includes(mode)))
+    			throw Error("Unknown mode: " + mode);
+    		this.mode = mode;
+
+    		if( mode != 'light' && mode != 'multi light') {
+    			let base = this.lightWeights([ 0.612,  0.354, 0.707]);
+    			let base1 = this.lightWeights([-0.612,  0.354, 0.707]);
+    			let base2 = this.lightWeights([     0, -0.707, 0.707]);
+    			this.setUniform('base', base);
+    			this.setUniform('base1', base1);
+    			this.setUniform('base2', base2);
+    		}
+    		this.needsUpdate = true;
+    	}
+
+    	setLight(light) {
+    		if(!this.uniforms.light) 
+    			throw "Shader not initialized, wait on layer ready event for setLight."
+
+    		let x = light[0];
+    		let y = light[1];
+
+    		//map the square to the circle.
+    		let r = Math.sqrt(x*x + y*y);
+    		if(r > 1) {
+    			x /= r;
+    			y /= r;
+    		}
+    		let z = Math.sqrt(Math.max(0, 1 - x*x - y*y));
+    		light = [x, y, z];
+
+    		if (this.mode == 'light') {
+    			let base = this.lightWeights(light);
+    			this.setUniform('base', base);
+    		}
+    		if (this.mode == 'multi light'){
+    			let base = this.lightWeights(light);
+    			let a = Math.atan2(y,x);
+    			let da = 2 * Math.PI / this.numLights;
+
+    			for (let i = 1; i < this.numLights; i++) {
+    				let x1 = Math.cos(a + da*i);
+    				let y1 = Math.sin(a + da*i);
+    				let base1 = this.lightWeights([x1, y1, 0]);
+    				for (let j = 0; j < base.length; j++)
+    					base[j] = base[j] + base1[j];
+    			}
+
+    			this.setUniform('base', base);
+    		}
+    		this.setUniform('light', light);
+    	}
+    	setSpecularExp(value) {
+    		this.setUniform('specular_exp', value);
+    	}
+
+    	init(relight) {
+    		Object.assign(this, relight);
+    		if(this.colorspace == 'mycc')
+    			this.nplanes = this.yccplanes[0] + this.yccplanes[1] + this.yccplanes[2];
+    		else 
+    			this.yccplanes = [0, 0, 0];
+
+
+    		this.planes = [];
+    		this.njpegs = 0;
+    		while(this.njpegs*3 < this.nplanes)
+    			this.njpegs++;
+
+    		for(let i = 0; i < this.njpegs; i++)
+    			this.samplers.push({ id:i, name:'plane'+i, type:'vec3' });
+
+    		if (this.mask)
+    			this.samplers.push({ id:this.samplers.length, name:'mask', type:'vec3'});
+    		
+    		if(this.normals)
+    			this.samplers.push({ id:this.samplers.length, name:'normals', type:'vec3' });
+
+    		this.material = this.materials[0];
+
+    		if(this.lights)
+    			this.lights + new Float32Array(this.lights);
+
+    		if(this.type == "rbf")
+    			this.ndimensions = this.lights.length/3;
+
+
+    		if(this.type == "bilinear") {
+    			this.ndimensions = this.resolution*this.resolution;
+    			this.type = "bln";
+    		}
+
+    		this.scale = this.material.scale;
+    		this.bias = this.material.bias;
+
+    		if(['mrgb', 'mycc'].includes(this.colorspace))
+    			this.loadBasis(this.basis);
+
+
+    		this.uniforms = {
+    			light: { type: 'vec3', needsUpdate: true, size: 3,              value: [0.0, 0.0, 1] },
+    			specular_exp: { type: 'float', needsUpdate: false, size: 1, value: 10 },
+    			bias:  { type: 'vec3', needsUpdate: true, size: this.nplanes/3, value: this.bias },
+    			scale: { type: 'vec3', needsUpdate: true, size: this.nplanes/3, value: this.scale },
+    			base:  { type: 'vec3', needsUpdate: true, size: this.nplanes },
+    			base1: { type: 'vec3', needsUpdate: false, size: this.nplanes },
+    			base2: { type: 'vec3', needsUpdate: false, size: this.nplanes }
+    		};
+
+    		let base = this.lightWeights([0, 0, 1]);
+    		this.setUniform('base', base);
+    	}
+
+    	lightWeights(light) {
+    		let value;
+    		switch(this.type) {
+    			case 'ptm': value = PTM.lightWeights(light); break;
+    			case 'hsh': value = HSH.lightWeights(light); break;
+    			case 'sh' : value = SH.lightWeights(light); break;
+    			case 'rbf': value = RBF.lightWeights(light, this); break;
+    			case 'bln': value = BLN.lightWeights(light, this); break;
+    		}
+    		return value;
+    	}
+
+    	baseLightOffset(p, l, k) {
+    		return (p*this.ndimensions + l)*3 + k;
+    	}
+
+    	basePixelOffset(p, x, y, k) {
+    		return (p*this.resolution*this.resolution + (x + y*this.resolution))*3 + k;
+    	}
+
+    	loadBasis(data) {
+    		let tmp = new Uint8Array(data);
+    		this.basis = new Float32Array(data.length);
+
+    		new Float32Array(tmp.length);
+    		for(let plane = 0; plane < this.nplanes+1; plane++) {
+    			for(let c = 0; c < this.ndimensions; c++) {
+    				for(let k = 0; k < 3; k++) {
+    					let o = this.baseLightOffset(plane, c, k);
+    					if(plane == 0)
+    						this.basis[o] = tmp[o]/255;
+    					else
+    						this.basis[o] = ((tmp[o] - 127)/this.material.range[plane-1]);
+    				}
+    			}
+    		}
+    	}
+
+    	fragShaderSrc(gl) {
+    		
+    		let basetype = 'vec3'; //(this.colorspace == 'mrgb' || this.colorspace == 'mycc')?'vec3':'float';
+    		let gl2 = !(gl instanceof WebGLRenderingContext);
+    		let str = `
+
+
+#define np1 ${this.nplanes + 1}
+
+${gl2? 'in' : 'varying'} vec2 v_texcoord;
+
+const mat3 T = mat3(8.1650e-01, 4.7140e-01, 4.7140e-01,
+	-8.1650e-01, 4.7140e-01,  4.7140e-01,
+	-1.6222e-08, -9.4281e-01, 4.7140e-01);
+
+uniform vec3 light;
+uniform float specular_exp;
+uniform vec3 bias[np1];
+uniform vec3 scale[np1];
+
+uniform ${basetype} base[np1];
+uniform ${basetype} base1[np1];
+uniform ${basetype} base2[np1];
+`;
+
+    		for(let n = 0; n < this.njpegs; n++) 
+    			str += `
+uniform sampler2D plane${n};
+`;
+
+    		if(this.normals)
+    			str += `
+uniform sampler2D normals;
+`;
+
+    		if(this.colorspace == 'mycc')
+    			str +=
+`
+
+const int ny0 = ${this.yccplanes[0]};
+const int ny1 = ${this.yccplanes[1]};
+`;
+
+    		switch(this.colorspace) {
+    			case 'lrgb':  str += LRGB.render(this.njpegs, gl2); break;
+    			case 'rgb' :  str +=  RGB.render(this.njpegs, gl2); break;
+    			case 'mrgb':  str += MRGB.render(this.njpegs, gl2); break;
+    			case 'mycc':  str += MYCC.render(this.njpegs, this.yccplanes[0], gl2); break;
+    		}
+
+    		str += `
+
+vec4 data(vec2 v_texcoord) {
+
+`;
+    		if(this.mode == 'light' || this.mode == 'multi light') {
+    			str += `
+	vec4 color = render(base, v_texcoord);
+`;
+    		} else  {
+    			str += `
+	vec4 color;
+`;
+    			if(this.normals)
+    				str += `
+	vec3 normal = (texture${gl2?'':'2D'}(normals, v_texcoord).zyx *2.0) - 1.0;
+	normal.z = sqrt(1.0 - normal.x*normal.x - normal.y*normal.y);
+`;
+    			else
+    				str += `
+	vec3 normal;
+	normal.x = dot(render(base, v_texcoord).xyz, vec3(1));
+	normal.y = dot(render(base1, v_texcoord).xyz, vec3(1));
+	normal.z = dot(render(base2, v_texcoord).xyz, vec3(1));
+	normal = normalize(T * normal);
+`; 
+    			switch(this.mode) {
+    			case 'normals':  str += `
+	normal = (normal + 1.0)/2.0;
+	color = vec4(0.0, normal.xy, 1);
+`;
+    			break;
+
+    			case 'diffuse': 
+    			if(this.colorspace == 'lrgb' || this.colorspace == 'rgb')
+    				str += `
+vec4 diffuse = texture${gl2?'':'2D'}(plane0, v_texcoord);
+float s = dot(light, normal);
+color = vec4(s * diffuse.xyz, 1);
+`;
+    			else
+    				str += `
+color = vec4(vec3(dot(light, normal)), 1);
+`;
+    			break;
+
+    			case 'specular': 
+    			default: str += `
+	float s = pow(dot(light, normal), specular_exp);
+	//color = vec4(render(base).xyz*s, 1.0);
+	color = vec4(s, s, s, 1.0);
+`;
+    			break;
+    			}
+    		}
+
+    		str += `return color;
+}`;
+    		return str;
+    	}
+    }
+
+
+    class LRGB {
+    	static render(njpegs, gl2) {
+    		let str = `
+vec4 render(vec3 base[np1]) {
+	float l = 0.0;
+`;
+    		for(let j = 1, k = 0; j < njpegs; j++, k+=3) {
+    			str += `
+	{
+		vec4 c = texture${gl2?'':'2D'}(plane${j}, v_texcoord);
+		l += base[${k}].x*(c.x - bias[${j}].x)*scale[${j}].x;
+		l += base[${k+1}].x*(c.y - bias[${j}].y)*scale[${j}].y;
+		l += base[${k+2}].x*(c.z - bias[${j}].z)*scale[${j}].z;
+	}
+`;
+    		}
+    		str += `
+	vec3 basecolor = (texture${gl2?'':'2D'}(plane0, v_texcoord).xyz - bias[0])*scale[0];
+
+	return l*vec4(basecolor, 1);
+}
+`;
+    		return str;
+    	}
+    }
+
+
+    class RGB {
+    	static render(njpegs, gl2) {
+    		let str = `
+vec4 render(vec3 base[np1], vec2 v_texcoord) {
+	vec4 rgb = vec4(0, 0, 0, 1);`;
+
+    		for(let j = 0; j < njpegs; j++) {
+    			str += `
+	{
+		vec4 c = texture${gl2?'':'2D'}(plane${j}, v_texcoord);
+		rgb.x += base[${j}].x*(c.x - bias[${j}].x)*scale[${j}].x;
+		rgb.y += base[${j}].y*(c.y - bias[${j}].y)*scale[${j}].y;
+		rgb.z += base[${j}].z*(c.z - bias[${j}].z)*scale[${j}].z;
+	}
+`;
+    		}
+    		str += `
+	return rgb;
+}
+`;
+    		return str;
+    	}
+    }
+
+    class MRGB {
+    	static render(njpegs, gl2) {
+    		let str = `
+vec4 render(vec3 base[np1]) {
+	vec3 rgb = base[0];
+	vec4 c;
+	vec3 r;
+`;
+    		for(let j = 0; j < njpegs; j++) {
+    			str +=
+`	c = texture${gl2?'':'2D'}(plane${j}, v_texcoord);
+	r = (c.xyz - bias[${j}])* scale[${j}];
+
+	rgb += base[${j}*3+1]*r.x;
+	rgb += base[${j}*3+2]*r.y;
+	rgb += base[${j}*3+3]*r.z;
+`    ;
+    		}
+    		str += `
+	return vec4(rgb, 1);
+}
+`;
+    		return str;
+    	}
+    }
+
+    class MYCC {
+
+    	static render(njpegs, ny1, gl2) {
+    		let str = `
+vec3 toRgb(vec3 ycc) {
+ 	vec3 rgb;
+	rgb.g = ycc.r + ycc.b/2.0;
+	rgb.b = ycc.r - ycc.b/2.0 - ycc.g/2.0;
+	rgb.r = rgb.b + ycc.g;
+	return rgb;
+}
+
+vec4 render(vec3 base[np1]) {
+	vec3 rgb = base[0];
+	vec4 c;
+	vec3 r;
+`;
+    		for(let j = 0; j < njpegs; j++) {
+    			str += `
+
+	c = texture${gl2?'':'2D'}(plane${j}, v_texcoord);
+
+	r = (c.xyz - bias[${j}])* scale[${j}];
+`;
+
+    			if(j < ny1) {
+    				str += `
+	rgb.x += base[${j}*3+1].x*r.x;
+	rgb.y += base[${j}*3+2].y*r.y;
+	rgb.z += base[${j}*3+3].z*r.z;
+`;
+    			} else {
+    				str += `
+	rgb.x += base[${j}*3+1].x*r.x;
+	rgb.x += base[${j}*3+2].x*r.y;
+	rgb.x += base[${j}*3+3].x*r.z;
+`;
+    			}
+    		}
+    		str += `	
+	return vec4(toRgb(rgb), 1);
+}
+`;
+    		return str;
+    	}
+    }
+
+
+
+
+    /* PTM utility functions 
+     */
+    class PTM {
+    	/* @param {Array} v expects light direction as [x, y, z]
+    	*/
+    	static lightWeights(v) {
+    		let b = [1.0, v[0], v[1], v[0]*v[0], v[0]*v[1], v[1]*v[1]];
+    		let base = new Float32Array(18);
+    		for(let i = 0; i < 18; i++)
+    			base[3*i] = base[3*i+1] = base[3*i+2] = b[i];
+    		return base;
+    	}
+    }
+
+
+    /* HSH utility functions 
+     */
+    class HSH {
+    	static minElevation = 0.15;
+    	/* @param {Array} v expects light direction as [x, y, z]
+    	*/
+    	static lightWeights(v) {
+    		let PI = 3.1415;
+    		let phi = Math.atan2(v[1], v[0]);
+    		if (phi < 0)
+    			phi = 2 * PI + phi;
+    		let theta = Math.min(Math.acos(v[2]), PI / 2 - this.minElevation);
+
+    		let cosP = Math.cos(phi);
+    		let cosT = Math.cos(theta);
+    		let cosT2 = cosT * cosT;
+
+    		let b = [
+    			1.0 / Math.sqrt(2 * PI),
+
+    			Math.sqrt(6 / PI) * (cosP * Math.sqrt(cosT-cosT2)),
+    			Math.sqrt(3 / (2 * PI)) * (-1 + 2*cosT),
+    			Math.sqrt(6 / PI) * (Math.sqrt(cosT - cosT2) * Math.sin(phi)),
+
+    			Math.sqrt(30 / PI) * (Math.cos(2 * phi) * (-cosT + cosT2)),
+    			Math.sqrt(30 / PI) * (cosP*(-1 + 2 * cosT) * Math.sqrt(cosT - cosT2)),
+    			Math.sqrt(5  / (2 * PI)) * (1 - 6 * cosT + 6 * cosT2),
+    			Math.sqrt(30 / PI) * ((-1 + 2 * cosT) * Math.sqrt(cosT - cosT2) * Math.sin(phi)),
+    			Math.sqrt(30 / PI) * ((-cosT + cosT2) * Math.sin(2*phi))
+    		];
+    		let base = new Float32Array(27);
+    		for(let i = 0; i < 27; i++)
+    			base[3*i] = base[3*i+1] = base[3*i+2] = b[i];
+    		return base;
+    	}
+    }
+
+    class SH {
+    	/* @param {Array} v expects light direction as [x, y, z]
+    	*/
+    	static lightWeights(v) {
+    		let PI = 3.1415;
+    		let A = 0.5*Math.sqrt(3.0/PI);
+    		let B = 0.5*Math.sqrt(15/PI);
+    		let b = [
+    			0.5/Math.sqrt(PI),
+    			A*v[0],
+    			A*v[2],
+    			A*v[1],
+    			B*v[0]*v[1],
+    			B*v[0]*v[2],
+    			0.5*Math.sqrt(5/PI)*(3*v[2]*v[2] - 1),
+    			B*v[1]*v[2],
+    			0.5*B*(v[1]*v[1] - v[0]*v[0])
+    		];
+
+    		let base = new Float32Array(27);
+    		for(let i = 0; i < 27; i++)
+    			base[3*i] = base[3*i+1] = base[3*i+2] = b[i];
+    		return base;
+    	}
+    }
+
+
+    class RBF {
+    	/* @param {Array} v expects light direction as [x, y, z]
+    	*/
+    	static lightWeights(lpos, shader) {
+
+    		let weights = RBF.rbf(lpos, shader);
+
+    		let np = shader.nplanes;
+    		let lweights = new Float32Array((np + 1) * 3);
+
+    		for(let p = 0; p < np+1; p++) {
+    			for(let k = 0; k < 3; k++) {
+    				for(let l = 0; l < weights.length; l++) {
+    					let o = shader.baseLightOffset(p, weights[l][0], k);
+    					lweights[3*p + k] += weights[l][1]*shader.basis[o];
+    				}
+    			}
+    		}
+    		return lweights;
+    	}
+
+    	static rbf(lpos, shader) {
+    		let radius = 1/(shader.sigma*shader.sigma);
+    		let weights = new Array(shader.ndimensions);
+
+    		//compute rbf weights
+    		let totw = 0.0;
+    		for(let i = 0; i < weights.length; i++) {
+    			let dx = shader.lights[i*3+0] - lpos[0];
+    			let dy = shader.lights[i*3+1] - lpos[1];
+    			let dz = shader.lights[i*3+2] - lpos[2];
+
+    			let d2 = dx*dx + dy*dy + dz*dz;
+    			let w = Math.exp(-radius * d2);
+
+    			weights[i] = [i, w];
+    			totw += w;
+    		}
+    		for(let i = 0; i < weights.length; i++)
+    			weights[i][1] /= totw;
+
+
+    		//pick only most significant and renormalize
+    		let count = 0;
+    		totw = 0.0;
+    		for(let i = 0; i < weights.length; i++) {
+    			if(weights[i][1] > 0.001) {
+    				weights[count++] =  weights[i];
+    				totw += weights[i][1];
+    			}
+    		}
+
+    		weights = weights.slice(0, count); 
+    		for(let i = 0; i < weights.length; i++)
+    			weights[i][1] /= totw;
+
+    		return weights;
+    	}
+    }
+
+    class BLN {
+    	static lightWeights(lpos, shader) {
+    		let np = shader.nplanes;
+    		let s = Math.abs(lpos[0]) + Math.abs(lpos[1]) + Math.abs(lpos[2]);
+
+    		//rotate 45 deg.
+    		let x = (lpos[0] + lpos[1])/s;
+    		let y = (lpos[1] - lpos[0])/s;
+    		x = (x + 1.0)/2.0;
+    		y = (y + 1.0)/2.0;
+    		x = x*(shader.resolution - 1.0);
+    		y = y*(shader.resolution - 1.0);
+
+    		let sx = Math.min(shader.resolution-2, Math.max(0, Math.floor(x)));
+    		let sy = Math.min(shader.resolution-2, Math.max(0, Math.floor(y)));
+    		let dx = x - sx;
+    		let dy = y - sy;
+
+    		//bilinear interpolation coefficients.
+    		let s00 = (1 - dx)*(1 - dy);
+    		let s10 =      dx *(1 - dy);
+    		let s01 = (1 - dx)* dy;
+    		let s11 =      dx * dy;
+
+    		let lweights = new Float32Array((np + 1) * 3);
+
+    		//TODO optimize away basePixel
+
+    		for(let p = 0; p < np+1; p++) {
+    			for(let k = 0; k < 3; k++) {
+    				let o00 = shader.basePixelOffset(p, sx, sy, k);
+    				let o10 = shader.basePixelOffset(p, sx+1, sy, k);
+    				let o01 = shader.basePixelOffset(p, sx, sy+1, k);
+    				let o11 = shader.basePixelOffset(p, sx+1, sy+1, k);
+
+    				lweights[3*p + k] = 
+    					s00*shader.basis[o00] + 
+    					s10*shader.basis[o10] +
+    					s01*shader.basis[o01] +
+    					s11*shader.basis[o11];
+
+    			}
+    		}
+    		return lweights;
+    	}
+    }
+
+    /**
+     * Extends {@link Layer}, and can display a relightable images (RTI) using the 'relight' data format (see:
+     * [relight on github]{@link https://github.com/cnr-isti-vclab/relight} for details).
+     * This web-friendly format is composed of a info.json with RTI parametets and a set of images 
+     * (plane_0.jpg, plane_1.jpg etc.) with encoded coefficients.
+     * As with all other layers Deepzoom and other {@link Layout}s can be used.
+     * 
+     * The ligh direction can be changed programmatically using setLight.
+     * 
+     * @param {options} options Same as {@link Layer}, but url and layout are required.
+     * **url**: points to a relight .json
+     * **layout**: one of image, deepzoom, google, iiif, zoomify, tarzoom, itarzoom
+     */
+
+    class LayerRTI extends Layer {
+    	constructor(options) {
+    		super(options);
+
+    		if(Object.keys(this.rasters).length != 0)
+    			throw "Rasters options should be empty!";
+
+    		if(!this.url)
+    			throw "Url option is required";
+
+    		this.shaders['rti'] = new ShaderRTI(this.shaderOptions);
+    		this.setShader('rti');
+
+    		this.addControl('light', [0, 0]);
+    		this.worldRotation = 0; //if the canvas or ethe layer rotate, light direction neeeds to be rotated too.
+    		
+    		this.loadJson(this.url);
+    	}
+    /*
+     *  Internal function to assemble the url needed to retrieve the image or the image tile.
+     */
+    	imageUrl(url, plane) {
+    		let path = this.url.substring(0, this.url.lastIndexOf('/')+1);
+    		switch(this.layout.type) {
+    			case 'image':    return path + plane + '.jpg';			case 'google':   return path + plane;			case 'deepzoom': return path + plane + '.dzi';			case 'tarzoom':  return path + plane + '.tzi';			case 'itarzoom': return path + 'planes.tzi';			case 'zoomify':  return path + plane + '/ImageProperties.xml';			//case 'iip':      return this.plane.throw Error("Unimplemented");
+    			case 'iiif': throw Error("Unimplemented");
+    			default:     throw Error("Unknown layout: " + layout.type);
+    		}
+    	}
+
+    /*
+     * Alias for setControl, changes light direction.
+     * @param {Array} light light direction as an array [x, y]
+     * @param {number} dt in ms, interpolation duration.
+     */
+    	setLight(light, dt) {
+    		this.setControl('light', light, dt);
+    	}
+
+    	loadJson(url) {
+    		(async () => {
+    			var response = await fetch(this.url);
+    			if(!response.ok) {
+    				this.status = "Failed loading " + this.url + ": " + response.statusText;
+    				return;
+    			}
+    			let json = await response.json();
+    			this.shader.init(json);
+    			let textureUrls = [];
+    			for(let p = 0; p < this.shader.njpegs; p++) {
+    				let url = this.layout.imageUrl(this.url, 'plane_' + p);
+    				textureUrls.push(url);
+    				let raster = new Raster$1({ format: 'vec3'});
+    				this.rasters.push(raster);
+    			}
+
+    			if(this.shader.mask) { 
+    				let url;
+    				if (typeof this.shader.mask === 'string')
+    					url = this.shader.mask;
+    				else
+    					url = this.layout.imageUrl(this.url, 'mask');	
+    				textureUrls.push(url);		
+    			}
+    			
+    			if(this.shader.normals) { // ITARZOOM must include normals and currently has a limitation: loads the entire tile 
+    				let url;
+    				if (typeof this.shader.normals === 'string')
+    					url = this.shader.normals;
+    				else
+    					url = this.layout.imageUrl(this.url, 'normals');	
+    				textureUrls.push(url);		
+    			}			
+
+    			this.layout.setUrls(textureUrls);
+
+    			for (let url of textureUrls) {
+    				let raster = new Raster$1({ format: 'vec3' });
+    				this.rasters.push(raster);
+    			}
+
+    		})().catch(e => { console.log(e); this.status = e; });
+    	}
+
+    	/*
+    	*  Internal function: light control maps to light direction in the shader.
+    	*/
+    	interpolateControls() {
+    		let done = super.interpolateControls();
+    		if (!done) {
+    			let light = this.controls['light'].current.value;
+    			light = this.rotateLight(light);
+    			this.shader.setLight(light);
+    		}
+    		return done;
+    	}
+
+    	draw(transform, viewport) {
+    		this.worldRotation = transform.a + this.transform.a;
+    		return super.draw(transform, viewport);
+    	}
+    }
+
+    Layer.prototype.types['rti'] = (options) => { return new LayerRTI(options); };
+
+    /**
      * Extends {@link Shader}, initialized with a Neural .json (
     **/
      
@@ -8472,7 +9252,7 @@ void main() {
     		super({});
 
     		Object.assign(this, {
-    			modes: ['light'],// 'second light', 'albedo blend', 'ambient occlusion'],
+    			modes: ['light', 'multi light', 'albedo blend'],
     			mode: 'light',
 
     			nplanes: null,	 //number of coefficient planes
@@ -8480,6 +9260,7 @@ void main() {
     			scale: null,	  //factor and bias are used to dequantize coefficient planes.
     			bias: null,
 
+    			numLights: 1,
     		});
     		Object.assign(this, options);
 
@@ -8505,6 +9286,7 @@ void main() {
     			layer2_biases:  { type: 'vec4', needsUpdate: true, size: this.n/4},
     			layer3_weights: { type: 'vec4', needsUpdate: true, size: this.n*3/4},
     			layer3_biases:  { type: 'vec3', needsUpdate: true, size: 1},
+    			light_intensity: { type: 'float', needsUpdate: false, size: 1, value: 0.5 },
     		};
     	}
 
@@ -8553,6 +9335,7 @@ uniform sampler2D u_texture_1;
 uniform sampler2D u_texture_2;
 uniform sampler2D u_texture_3;
 uniform vec2 lights;
+uniform float light_intensity;
 
 uniform vec4 layer1_weights[${this.c*this.n/4}]; // 12*52/4
 uniform vec4 layer1_biases[${this.n/4}];  // 52/4
@@ -8642,22 +9425,16 @@ vec4 data(vec2 v_texcoord) {
 	color = render(lights, v_texcoord);
 `;
 
-    		else if (this.mode == 'second light')
+    		if (this.mode == 'multi light')
     			str += `
-	// color = render(lights, v_texcoord) * 0.5 + render(-lights, v_texcoord) * 0.5;
-	color = vec4(render(lights, v_texcoord).rgb + render(-lights, v_texcoord).rgb, 1.0);
+	color = render(lights, v_texcoord) * light_intensity + render(-lights, v_texcoord) * (1.0 - light_intensity);
 `;
 
     		else if (this.mode == 'albedo blend')
     			str += `
-	color = render(lights, v_texcoord);
-	vec4 albedo = texture(albedo, v_texcoord);
-	color = color * 0.5 + albedo * 0.5;
-`;
+	vec4 albedo_pixel = texture(albedo, v_texcoord);
+	color = render(lights, v_texcoord) * light_intensity + albedo_pixel * (1.0 - light_intensity);
 
-    		else if (this.mode == 'ambient occlusion')
-    			str += `
-	color = vec4(0.0, 0.0, 1.0, 1.0);
 `;
 
     		str += `
@@ -8717,6 +9494,10 @@ vec4 data1() {
     		return str;
     	}
 
+
+    	setLightIntensity(value) {
+    		this.setUniform('light_intensity', value);
+    	}
     }
 
     class LayerNeuralRTI extends Layer {
@@ -8736,8 +9517,37 @@ vec4 data1() {
     		
     		this.imageShader = new Shader({
     			'label': 'Rgb',
-    			'samplers': [{ id: 0, name: 'kd', type: 'vec3', load: false }]
+    			'samplers': [{ id: 0, name: 'kd', type: 'vec3', load: false }],
     		});
+
+    	// 	this.imageShader['modes'] = ['light', 'colore prova'];
+
+    	// 	this.imageShader.fragShaderSrc = (gl) => {
+    	// 		let gl2 = !(gl instanceof WebGLRenderingContext);
+    	
+    	// 		let str;
+
+    	// 		str = `
+    	
+    	// uniform sampler2D kd;
+    	// ${gl2? 'in' : 'varying'} vec2 v_texcoord;
+    	
+    	// vec4 data(vec2 v_texcoord) {
+    	// 		`;
+    	// 		if (this.imageShader.mode == 'light')
+    	// 			str += `return texture${gl2?'':'2D'}(kd, v_texcoord);
+    	// 	}
+    	// 		`;
+    	// 		if (this.imageShader.mode == 'colore prova')
+    	// 			str += ` return vec4(1.0,1.0,0.0,1.0);
+
+    	// }
+    	// `;
+    	
+    	// 		return str;
+    	// 	}
+
+    	// 	this.imageShader.setMode('light');
 
     		this.shaders = { 'standard': this.imageShader, 'neural': this.neuralShader };
     		this.setShader('neural');
@@ -8778,11 +9588,29 @@ vec4 data1() {
     		this.layout.setUrls(textureUrls);
 
     		for (let url of textureUrls) {
-    			let raster = new Raster({ format: 'vec3' });
+    			let raster = new Raster$1({ format: 'vec3' });
     			this.rasters.push(raster);
     		}
 
     		(async () => { await this.loadNeural(this.url); })();
+    	}
+
+    	setMode(mode) {
+    		this.neuralShader.setMode(mode);
+    		this.forceRelight();
+    		this.emit('update');
+    	};
+
+    	getModes() {
+    		if (this.neuralShader)
+    			return this.neuralShader.modes;
+    		return [];
+    	}
+
+    	getMode() {
+    		if (this.neuralShader)
+    			return this.neuralShader.mode;
+    		return null;
     	}
 
     	setLight(light, dt) {
@@ -8907,8 +9735,7 @@ vec4 data1() {
     			if (tiles.length == 0)
     				return;
     			if (sizeChanged)
-    				for (let tile of tiles)
-    					tile.neuralUpdated = false;
+    				this.forceRelight();
 
     			this.relighted = false;
     			this.totTiles = 0;
@@ -9023,769 +9850,35 @@ vec4 data1() {
     			return true;
 
     		let light = this.controls['light'].current.value;
+    		console.log(light);
     		let rotated = Transform.rotate(light[0], light[1], this.worldRotation * Math.PI);
     		light = [rotated.x, rotated.y];
+    		console.log(this.transform);
     		this.neuralShader.setLight(light);
 
 
+    		this.forceRelight();
+    		return false;
+    	}
+
+    	interpolateControls() {
+    		let done = super.interpolateControls();
+    		if (!done) {
+    			let light = this.controls['light'].current.value;
+    			light = this.rotateLight(light);
+    			this.neuralShader.setLight(light);
+    			this.forceRelight();
+    		}
+    		return done;
+    	}
+
+    	forceRelight() {
     		for (let [id, tile] of this.tiles)
     			tile.neuralUpdated = false;
-    		return false;
     	}
     }
 
     Layer.prototype.types['neural'] = (options) => { return new LayerNeuralRTI(options); };
-
-    class ShaderRTIMultiLight extends Shader {
-        constructor(options) {
-            super({});
-
-            Object.assign(this, {
-                modes: ['light', 'normals', 'diffuse', 'specular'],
-                mode: 'normal',
-                type:        ['ptm', 'hsh',  'sh', 'rbf', 'bln'],
-                colorspaces: ['lrgb', 'rgb', 'mrgb', 'mycc'],
-
-                nplanes: null,     //number of coefficient planes
-                yccplanes: null,     //number of luminance planes for mycc color space
-                njpegs: null,      //number of textures needed (ceil(nplanes/3))
-                material: null,    //material parameters
-                lights: null,      //light directions (needed for rbf interpolation)
-                sigma: null,       //rbf interpolation parameter
-                ndimensions: null, //PCA dimension space (for rbf and bln)
-
-                scale: null,      //factor and bias are used to dequantize coefficient planes.
-                bias: null,
-
-                basis: null,       //PCA basis for rbf and bln
-                lweights: null    //light direction dependent coefficients to be used with coefficient planes
-            });
-            Object.assign(this, options);
-
-            if(this.relight)
-                this.init(this.relight);
-
-            this.setMode('light');
-        }
-
-        /*
-     * Set current rendering mode
-     * @param {string} mode one of 'light', 'normals', 'diffuse', 'specular'
-     * @param {number} dt in ms, interpolation duration.
-     */
-        setMode(mode) {
-            if(!(this.modes.includes(mode)))
-                throw Error("Unknown mode: " + mode);
-            this.mode = mode;
-
-            if( mode != 'light') {
-                this.lightWeights([ 0.612,  0.354, 0.707], 'base');
-                this.lightWeights([-0.612,  0.354, 0.707], 'base1');
-                this.lightWeights([     0, -0.707, 0.707], 'base2');
-            }
-            this.needsUpdate = true;
-        }
-
-        setLight(light) {
-            if(!this.uniforms.light) 
-                throw "Shader not initialized, wait on layer ready event for setLight."
-
-            let x = light[0];
-            let y = light[1];
-
-            //map the square to the circle.
-            let r = Math.sqrt(x*x + y*y);
-            if(r > 1) {
-                x /= r;
-                y /= r;
-            }
-            let z = Math.sqrt(Math.max(0, 1 - x*x - y*y));
-            light = [x, y, z];
-
-            if(this.mode == 'light')
-                this.lightWeights(light, 'base');
-            this.setUniform('light', light);
-
-            this.lightWeights([-light[0], -light[1], light[2]], 'baseSL');
-        }
-        setSpecularExp(value) {
-            this.setUniform('specular_exp', value);
-        }
-
-        init(relight) {
-            Object.assign(this, relight);
-            if(this.colorspace == 'mycc')
-                this.nplanes = this.yccplanes[0] + this.yccplanes[1] + this.yccplanes[2];
-            else 
-                this.yccplanes = [0, 0, 0];
-
-
-            this.planes = [];
-            this.njpegs = 0;
-            while(this.njpegs*3 < this.nplanes)
-                this.njpegs++;
-
-            for(let i = 0; i < this.njpegs; i++)
-                this.samplers.push({ id:i, name:'plane'+i, type:'vec3' });
-            
-            if(this.normals)
-                this.samplers.push({ id:this.samplers.length, name:'normals', type:'vec3' });
-            if(this.albedo)
-                this.samplers.push({ id:this.samplers.length, name:'albedo', type:'vec3' });
-            if(this.mask)
-                this.samplers.push({ id:this.samplers.length, name:'mask', type:'vec3' });
-
-            this.material = this.materials[0];
-
-            if(this.lights)
-                this.lights + new Float32Array(this.lights);
-
-            if(this.type == "rbf")
-                this.ndimensions = this.lights.length/3;
-
-
-            if(this.type == "bilinear") {
-                this.ndimensions = this.resolution*this.resolution;
-                this.type = "bln";
-            }
-
-            this.scale = this.material.scale;
-            this.bias = this.material.bias;
-
-            if(['mrgb', 'mycc'].includes(this.colorspace))
-                this.loadBasis(this.basis);
-
-
-            this.uniforms = {
-                light: { type: 'vec3', needsUpdate: true, size: 3,              value: [0.0, 0.0, 1] },
-                specular_exp: { type: 'float', needsUpdate: false, size: 1, value: 10 },
-                bias:  { type: 'vec3', needsUpdate: true, size: this.nplanes/3, value: this.bias },
-                scale: { type: 'vec3', needsUpdate: true, size: this.nplanes/3, value: this.scale },
-                base:  { type: 'vec3', needsUpdate: true, size: this.nplanes },
-                base1: { type: 'vec3', needsUpdate: false, size: this.nplanes },
-                base2: { type: 'vec3', needsUpdate: false, size: this.nplanes },
-                baseSL: { type: 'vec3', needsUpdate: true, size: this.nplanes }
-            };
-
-            this.lightWeights([0, 0, 1], 'base');
-            this.lightWeights([0, 0, 1], 'baseSL');
-                
-        }
-
-        lightWeights(light, basename, time) {
-            let value;
-            switch(this.type) {
-                case 'ptm': value = PTM.lightWeights(light); break;
-                case 'hsh': value = HSH.lightWeights(light); break;
-                case 'sh' : value = SH.lightWeights(light); break;
-                case 'rbf': value = RBF.lightWeights(light, this); break;
-                case 'bln': value = BLN.lightWeights(light, this); break;
-            }
-            this.setUniform(basename, value, time);
-        }
-
-        baseLightOffset(p, l, k) {
-            return (p*this.ndimensions + l)*3 + k;
-        }
-
-        basePixelOffset(p, x, y, k) {
-            return (p*this.resolution*this.resolution + (x + y*this.resolution))*3 + k;
-        }
-
-        loadBasis(data) {
-            let tmp = new Uint8Array(data);
-            this.basis = new Float32Array(data.length);
-
-            new Float32Array(tmp.length);
-            for(let plane = 0; plane < this.nplanes+1; plane++) {
-                for(let c = 0; c < this.ndimensions; c++) {
-                    for(let k = 0; k < 3; k++) {
-                        let o = this.baseLightOffset(plane, c, k);
-                        if(plane == 0)
-                            this.basis[o] = tmp[o]/255;
-                        else
-                            this.basis[o] = ((tmp[o] - 127)/this.material.range[plane-1]);
-                    }
-                }
-            }
-        }
-
-        fragShaderSrc(gl) {
-            
-            let basetype = 'vec3'; //(this.colorspace == 'mrgb' || this.colorspace == 'mycc')?'vec3':'float';
-            let gl2 = !(gl instanceof WebGLRenderingContext);
-            let str = `
-
-
-#define np1 ${this.nplanes + 1}
-
-${gl2? 'in' : 'varying'} vec2 v_texcoord;
-
-const mat3 T = mat3(8.1650e-01, 4.7140e-01, 4.7140e-01,
--8.1650e-01, 4.7140e-01,  4.7140e-01,
--1.6222e-08, -9.4281e-01, 4.7140e-01);
-
-uniform vec3 light;
-uniform float specular_exp;
-uniform vec3 bias[np1];
-uniform vec3 scale[np1];
-
-uniform ${basetype} base[np1];
-uniform ${basetype} base1[np1];
-uniform ${basetype} base2[np1];
-`;
-
-            if (this.secondLight)
-                str += `
-uniform ${basetype} baseSL[np1];
-`;
-
-            for(let n = 0; n < this.njpegs; n++) 
-                str += `
-uniform sampler2D plane${n};
-`;
-
-            if(this.normals)
-                str += `
-uniform sampler2D normals;
-`;
-
-            if(this.albedo)
-                str += `
-uniform sampler2D albedo;
-`;
-
-            if(this.colorspace == 'mycc')
-                str +=
-`
-
-const int ny0 = ${this.yccplanes[0]};
-const int ny1 = ${this.yccplanes[1]};
-`    ;
-
-            switch(this.colorspace) {
-                case 'lrgb':  str += LRGB.render(this.njpegs, gl2); break;
-                case 'rgb' :  str +=  RGB.render(this.njpegs, gl2); break;
-                case 'mrgb':  str += MRGB.render(this.njpegs, gl2); break;
-                case 'mycc':  str += MYCC.render(this.njpegs, this.yccplanes[0], gl2); break;
-            }
-
-            str += `
-
-vec4 data(vec2 v_texcoord) {
-
-vec4 color;
-
-`;
-
-            if(this.mode == 'light') {
-                if (this.secondLight)
-                    str += `
-// color = render(base) * 0.5 + render(baseSL) * 0.5;
-color = vec4(render(base).rgb + render(baseSL).rgb, 1.0);
-`;
-                else
-                    str += `
-color = render(base, v_texcoord);
-`; 
-            } else  {
-
-                if(this.normals)
-                    str += `
-vec3 normal = (texture${gl2?'':'2D'}(normals, v_texcoord).zyx *2.0) - 1.0;
-normal.z = sqrt(1.0 - normal.x*normal.x - normal.y*normal.y);
-`;
-                else
-                    str += `
-vec3 normal;
-normal.x = dot(render(base ).xyz, vec3(1));
-normal.y = dot(render(base1).xyz, vec3(1));
-normal.z = dot(render(base2).xyz, vec3(1));
-normal = normalize(T * normal);
-`; 
-                switch(this.mode) {
-                case 'normals':  str += `
-normal = (normal + 1.0)/2.0;
-color = vec4(0.0, normal.xy, 1);
-`;
-                break;
-
-                case 'diffuse': 
-                if(this.colorspace == 'lrgb' || this.colorspace == 'rgb')
-                    str += `
-vec4 diffuse = texture${gl2?'':'2D'}(plane0, v_texcoord);
-float s = dot(light, normal);
-color = vec4(s * diffuse.xyz, 1);
-`;
-                else
-                    str += `
-color = vec4(vec3(dot(light, normal)), 1);
-`;
-                break;
-
-                case 'specular': 
-                default: str += `
-float s = pow(dot(light, normal), specular_exp);
-//color = vec4(render(base).xyz*s, 1.0);
-color = vec4(s, s, s, 1.0);
-`;
-                break;
-                }
-            }
-
-            str += `return color;
-}`;
-            return str;
-        }
-    }
-
-
-    class LRGB {
-        static render(njpegs, gl2) {
-            let str = `
-vec4 render(vec3 base[np1]) {
-float l = 0.0;
-`;
-            for(let j = 1, k = 0; j < njpegs; j++, k+=3) {
-                str += `
-{
-    vec4 c = texture${gl2?'':'2D'}(plane${j}, v_texcoord);
-    l += base[${k}].x*(c.x - bias[${j}].x)*scale[${j}].x;
-    l += base[${k+1}].x*(c.y - bias[${j}].y)*scale[${j}].y;
-    l += base[${k+2}].x*(c.z - bias[${j}].z)*scale[${j}].z;
-}
-`;
-            }
-            str += `
-vec3 basecolor = (texture${gl2?'':'2D'}(plane0, v_texcoord).xyz - bias[0])*scale[0];
-
-return l*vec4(basecolor, 1);
-}
-`;
-            return str;
-        }
-    }
-
-
-    class RGB {
-        static render(njpegs, gl2) {
-            let str = `
-vec4 render(vec3 base[np1]) {
-vec4 rgb = vec4(0, 0, 0, 1);`;
-
-            for(let j = 0; j < njpegs; j++) {
-                str += `
-{
-    vec4 c = texture${gl2?'':'2D'}(plane${j}, v_texcoord);
-    rgb.x += base[${j}].x*(c.x - bias[${j}].x)*scale[${j}].x;
-    rgb.y += base[${j}].y*(c.y - bias[${j}].y)*scale[${j}].y;
-    rgb.z += base[${j}].z*(c.z - bias[${j}].z)*scale[${j}].z;
-}
-`;
-            }
-            str += `
-return rgb;
-}
-`;
-
-
-            str += `
-vec4 render(vec3 base[np1], vec2 v_texcoord) {
-vec4 rgb = vec4(0, 0, 0, 1);`;
-
-            for(let j = 0; j < njpegs; j++) {
-                str += `
-{
-    vec4 c = texture${gl2?'':'2D'}(plane${j}, v_texcoord);
-    rgb.x += base[${j}].x*(c.x - bias[${j}].x)*scale[${j}].x;
-    rgb.y += base[${j}].y*(c.y - bias[${j}].y)*scale[${j}].y;
-    rgb.z += base[${j}].z*(c.z - bias[${j}].z)*scale[${j}].z;
-}
-`;
-            }
-            str += `
-return rgb;
-}
-`;
-
-
-            return str;
-        }
-    }
-
-    class MRGB {
-        static render(njpegs, gl2) {
-            let str = `
-vec4 render(vec3 base[np1]) {
-vec3 rgb = base[0];
-vec4 c;
-vec3 r;
-`;
-            for(let j = 0; j < njpegs; j++) {
-                str +=
-`	c = texture${gl2?'':'2D'}(plane${j}, v_texcoord);
-r = (c.xyz - bias[${j}])* scale[${j}];
-
-rgb += base[${j}*3+1]*r.x;
-rgb += base[${j}*3+2]*r.y;
-rgb += base[${j}*3+3]*r.z;
-`        ;
-            }
-            str += `
-return vec4(rgb, 1);
-}
-`;
-            return str;
-        }
-    }
-
-    class MYCC {
-
-        static render(njpegs, ny1, gl2) {
-            let str = `
-vec3 toRgb(vec3 ycc) {
- vec3 rgb;
-rgb.g = ycc.r + ycc.b/2.0;
-rgb.b = ycc.r - ycc.b/2.0 - ycc.g/2.0;
-rgb.r = rgb.b + ycc.g;
-return rgb;
-}
-
-vec4 render(vec3 base[np1]) {
-vec3 rgb = base[0];
-vec4 c;
-vec3 r;
-`;
-            for(let j = 0; j < njpegs; j++) {
-                str += `
-
-c = texture${gl2?'':'2D'}(plane${j}, v_texcoord);
-
-r = (c.xyz - bias[${j}])* scale[${j}];
-`;
-
-                if(j < ny1) {
-                    str += `
-rgb.x += base[${j}*3+1].x*r.x;
-rgb.y += base[${j}*3+2].y*r.y;
-rgb.z += base[${j}*3+3].z*r.z;
-`;
-                } else {
-                    str += `
-rgb.x += base[${j}*3+1].x*r.x;
-rgb.x += base[${j}*3+2].x*r.y;
-rgb.x += base[${j}*3+3].x*r.z;
-`;
-                }
-            }
-            str += `	
-return vec4(toRgb(rgb), 1);
-}
-`;
-            return str;
-        }
-    }
-
-
-
-
-    /* PTM utility functions 
-     */
-    class PTM {
-        /* @param {Array} v expects light direction as [x, y, z]
-        */
-        static lightWeights(v) {
-            let b = [1.0, v[0], v[1], v[0]*v[0], v[0]*v[1], v[1]*v[1]];
-            let base = new Float32Array(18);
-            for(let i = 0; i < 18; i++)
-                base[3*i] = base[3*i+1] = base[3*i+2] = b[i];
-            return base;
-        }
-    }
-
-
-    /* HSH utility functions 
-     */
-    class HSH {
-        static minElevation = 0.15;
-        /* @param {Array} v expects light direction as [x, y, z]
-        */
-        static lightWeights(v) {
-            let PI = 3.1415;
-            let phi = Math.atan2(v[1], v[0]);
-            if (phi < 0)
-                phi = 2 * PI + phi;
-            let theta = Math.min(Math.acos(v[2]), PI / 2 - this.minElevation);
-
-            let cosP = Math.cos(phi);
-            let cosT = Math.cos(theta);
-            let cosT2 = cosT * cosT;
-
-            let b = [
-                1.0 / Math.sqrt(2 * PI),
-
-                Math.sqrt(6 / PI) * (cosP * Math.sqrt(cosT-cosT2)),
-                Math.sqrt(3 / (2 * PI)) * (-1 + 2*cosT),
-                Math.sqrt(6 / PI) * (Math.sqrt(cosT - cosT2) * Math.sin(phi)),
-
-                Math.sqrt(30 / PI) * (Math.cos(2 * phi) * (-cosT + cosT2)),
-                Math.sqrt(30 / PI) * (cosP*(-1 + 2 * cosT) * Math.sqrt(cosT - cosT2)),
-                Math.sqrt(5  / (2 * PI)) * (1 - 6 * cosT + 6 * cosT2),
-                Math.sqrt(30 / PI) * ((-1 + 2 * cosT) * Math.sqrt(cosT - cosT2) * Math.sin(phi)),
-                Math.sqrt(30 / PI) * ((-cosT + cosT2) * Math.sin(2*phi))
-            ];
-            let base = new Float32Array(27);
-            for(let i = 0; i < 27; i++)
-                base[3*i] = base[3*i+1] = base[3*i+2] = b[i];
-            return base;
-        }
-    }
-
-    class SH {
-        /* @param {Array} v expects light direction as [x, y, z]
-        */
-        static lightWeights(v) {
-            let PI = 3.1415;
-            let A = 0.5*Math.sqrt(3.0/PI);
-            let B = 0.5*Math.sqrt(15/PI);
-            let b = [
-                0.5/Math.sqrt(PI),
-                A*v[0],
-                A*v[2],
-                A*v[1],
-                B*v[0]*v[1],
-                B*v[0]*v[2],
-                0.5*Math.sqrt(5/PI)*(3*v[2]*v[2] - 1),
-                B*v[1]*v[2],
-                0.5*B*(v[1]*v[1] - v[0]*v[0])
-            ];
-
-            let base = new Float32Array(27);
-            for(let i = 0; i < 27; i++)
-                base[3*i] = base[3*i+1] = base[3*i+2] = b[i];
-            return base;
-        }
-    }
-
-
-    class RBF {
-        /* @param {Array} v expects light direction as [x, y, z]
-        */
-        static lightWeights(lpos, shader) {
-
-            let weights = RBF.rbf(lpos, shader);
-
-            let np = shader.nplanes;
-            let lweights = new Float32Array((np + 1) * 3);
-
-            for(let p = 0; p < np+1; p++) {
-                for(let k = 0; k < 3; k++) {
-                    for(let l = 0; l < weights.length; l++) {
-                        let o = shader.baseLightOffset(p, weights[l][0], k);
-                        lweights[3*p + k] += weights[l][1]*shader.basis[o];
-                    }
-                }
-            }
-            return lweights;
-        }
-
-        static rbf(lpos, shader) {
-            let radius = 1/(shader.sigma*shader.sigma);
-            let weights = new Array(shader.ndimensions);
-
-            //compute rbf weights
-            let totw = 0.0;
-            for(let i = 0; i < weights.length; i++) {
-                let dx = shader.lights[i*3+0] - lpos[0];
-                let dy = shader.lights[i*3+1] - lpos[1];
-                let dz = shader.lights[i*3+2] - lpos[2];
-
-                let d2 = dx*dx + dy*dy + dz*dz;
-                let w = Math.exp(-radius * d2);
-
-                weights[i] = [i, w];
-                totw += w;
-            }
-            for(let i = 0; i < weights.length; i++)
-                weights[i][1] /= totw;
-
-
-            //pick only most significant and renormalize
-            let count = 0;
-            totw = 0.0;
-            for(let i = 0; i < weights.length; i++) {
-                if(weights[i][1] > 0.001) {
-                    weights[count++] =  weights[i];
-                    totw += weights[i][1];
-                }
-            }
-
-            weights = weights.slice(0, count); 
-            for(let i = 0; i < weights.length; i++)
-                weights[i][1] /= totw;
-
-            return weights;
-        }
-    }
-
-    class BLN {
-        static lightWeights(lpos, shader) {
-            let np = shader.nplanes;
-            let s = Math.abs(lpos[0]) + Math.abs(lpos[1]) + Math.abs(lpos[2]);
-
-            //rotate 45 deg.
-            let x = (lpos[0] + lpos[1])/s;
-            let y = (lpos[1] - lpos[0])/s;
-            x = (x + 1.0)/2.0;
-            y = (y + 1.0)/2.0;
-            x = x*(shader.resolution - 1.0);
-            y = y*(shader.resolution - 1.0);
-
-            let sx = Math.min(shader.resolution-2, Math.max(0, Math.floor(x)));
-            let sy = Math.min(shader.resolution-2, Math.max(0, Math.floor(y)));
-            let dx = x - sx;
-            let dy = y - sy;
-
-            //bilinear interpolation coefficients.
-            let s00 = (1 - dx)*(1 - dy);
-            let s10 =      dx *(1 - dy);
-            let s01 = (1 - dx)* dy;
-            let s11 =      dx * dy;
-
-            let lweights = new Float32Array((np + 1) * 3);
-
-            //TODO optimize away basePixel
-
-            for(let p = 0; p < np+1; p++) {
-                for(let k = 0; k < 3; k++) {
-                    let o00 = shader.basePixelOffset(p, sx, sy, k);
-                    let o10 = shader.basePixelOffset(p, sx+1, sy, k);
-                    let o01 = shader.basePixelOffset(p, sx, sy+1, k);
-                    let o11 = shader.basePixelOffset(p, sx+1, sy+1, k);
-
-                    lweights[3*p + k] = 
-                        s00*shader.basis[o00] + 
-                        s10*shader.basis[o10] +
-                        s01*shader.basis[o01] +
-                        s11*shader.basis[o11];
-
-                }
-            }
-            return lweights;
-        }
-    }
-
-    class LayerRTIMultiLight extends Layer {
-        constructor(options) {
-            super(options);
-
-            if(Object.keys(this.rasters).length != 0)
-                throw "Rasters options should be empty!";
-
-            if(!this.url)
-                throw "Url option is required";
-
-            // this.shaders['rti_multi_light'] = new ShaderRTIMultiLight({ normals: this.normals });
-            this.shaders['rti_multi_light'] = new ShaderRTIMultiLight(this.shaderOptions);
-            this.setShader('rti_multi_light');
-
-            this.addControl('light', [0, 0]);
-            this.worldRotation = 0; //if the canvas or ethe layer rotate, light direction neeeds to be rotated too.
-            
-            this.loadJson(this.url);
-        }
-    /*
-     *  Internal function to assemble the url needed to retrieve the image or the image tile.
-     */
-        imageUrl(url, plane) {
-            let path = this.url.substring(0, this.url.lastIndexOf('/')+1);
-            switch(this.layout.type) {
-                case 'image':    return path + plane + '.jpg';			case 'google':   return path + plane;			case 'deepzoom': return path + plane + '.dzi';			case 'tarzoom':  return path + plane + '.tzi';			case 'itarzoom': return path + 'planes.tzi';			case 'zoomify':  return path + plane + '/ImageProperties.xml';			//case 'iip':      return this.plane.throw Error("Unimplemented");
-                case 'iiif': throw Error("Unimplemented");
-                default:     throw Error("Unknown layout: " + layout.type);
-            }
-        }
-
-    /*
-     * Alias for setControl, changes light direction.
-     * @param {Array} light light direction as an array [x, y]
-     * @param {number} dt in ms, interpolation duration.
-     */
-        setLight(light, dt) {
-            this.setControl('light', light, dt);
-        }
-
-        loadJson(url) {
-            (async () => {
-                var response = await fetch(this.url);
-                if(!response.ok) {
-                    this.status = "Failed loading " + this.url + ": " + response.statusText;
-                    return;
-                }
-                let json = await response.json();
-                this.shader.init(json);
-                let urls = [];
-                for(let p = 0; p < this.shader.njpegs; p++) {
-                    let url = this.layout.imageUrl(this.url, 'plane_' + p);
-                    urls.push(url);
-                    let raster = new Raster({ format: 'vec3'});
-                    this.rasters.push(raster);
-                }
-                if(this.shader.normals) { // ITARZOOM must include normals and currently has a limitation: loads the entire tile 
-                    let url;
-                    if (typeof this.shader.normals === 'string')
-                        url = this.shader.normals;
-                    else
-                        url = this.layout.imageUrl(this.url, 'normals');
-                    urls.push(url);
-                    let raster = new Raster({ format: 'vec3'});
-                    this.rasters.push(raster);				
-                }	
-                if(this.shader.albedo) { // ITARZOOM must include normals and currently has a limitation: loads the entire tile 
-                    let url;
-                    if (typeof this.shader.albedo === 'string')
-                        url = this.shader.albedo;
-                    else
-                        url = this.layout.imageUrl(this.url, 'albedo');
-                    urls.push(url);
-                    let raster = new Raster({ format: 'vec3'});
-                    this.rasters.push(raster);				
-                }	
-                if(this.shader.mask) { // ITARZOOM must include normals and currently has a limitation: loads the entire tile 
-                    let url;
-                    if (typeof this.shader.mask === 'string')
-                        url = this.shader.mask;
-                    else
-                        url = this.layout.imageUrl(this.url, 'mask');
-                    urls.push(url);
-                    let raster = new Raster({ format: 'vec3'});
-                    this.rasters.push(raster);				
-                }			
-                this.layout.setUrls(urls);
-
-            })().catch(e => { console.log(e); this.status = e; });
-        }
-
-    /*
-     *  Internal function: light control maps to light direction in the shader.
-     */
-        interpolateControls() {
-            let done = super.interpolateControls();
-            if(!done) {
-                let light = this.controls['light'].current.value;
-                //this.shader.setLight(light);
-                let rotated = Transform.rotate(light[0], light[1], this.worldRotation*Math.PI);
-                this.shader.setLight([rotated.x, rotated.y]);
-            }
-            return done;
-        }
-        draw(transform, viewport) {
-            this.worldRotation = transform.a + this.transform.a;
-            return super.draw(transform, viewport);
-        }
-    }
-
-    Layer.prototype.types['rti_multi_light'] = (options) => { return new LayerRTIMultiLight(options); };
 
     /**
      *  @param {object} options
@@ -10020,7 +10113,7 @@ vec4 data() {
     			gloss: { format: 'float', name: 'uTexGloss' }
     		};
     		for (let c in this.channels) {
-    			this.rasters.push(new Raster({ format: brdfSamplersMap[c].format }));
+    			this.rasters.push(new Raster$1({ format: brdfSamplersMap[c].format }));
     			samplers.push({ 'id': id, 'name': brdfSamplersMap[c].name });
     			urls[id] = this.channels[c];
     			id++;
@@ -10098,6 +10191,227 @@ vec4 data() {
 
 
     Layer.prototype.types['brdf'] = (options) => { return new LayerBRDF(options); };
+
+    /**
+     * Extends {@link Shader}, initialized with a Neural .json (
+    **/
+     
+    class ShaderBRDFIkehata extends Shader {
+    	constructor(options) {
+    		super({});
+
+    		Object.assign(this, {
+    			modes: ['color', 'diffuse', 'specular', 'normals', 'monochrome'],
+    			mode: 'color',
+
+    			nplanes: null,	 //number of coefficient planes
+
+    			scale: null,	  //factor and bias are used to dequantize coefficient planes.
+    			bias: null,
+    			
+    			numLights: 1,
+    		});
+    		Object.assign(this, options);
+
+            this.ikehata_maps = ['normals', 'base', 'metallic', 'roughness'];
+
+    		this.samplers = [];
+            for (let i = 0; i < this.ikehata_maps.length; i++)
+                this.samplers.push({ id:i, name:this.ikehata_maps[i], type:'vec3' });
+
+            if (this.mask)
+                this.samplers.push({ id:this.samplers.length, name:'mask', type:'vec3' });
+
+
+    		this.uniforms = {
+    			light: { type: 'vec3', needsUpdate: true, size: 3, value: [0, 0, 1] },
+    		};
+
+    		this.setMode(this.mode);
+
+    	}
+
+    	setLight(light) {
+    		let x = light[0];
+    		let y = light[1];
+    		let z = Math.sqrt(Math.max(0, 1 - x*x - y*y));
+    		light = [x, y, z];
+    		this.setUniform('light', light);
+    	}
+
+    	fragShaderSrc(gl) {
+            let gl2 = !(gl instanceof WebGLRenderingContext);
+
+    		let brdfReturnedValue;
+    		switch(this.mode) {
+    			case 'color': brdfReturnedValue = 'nl * EMIT * (fd + fr)'; break;
+    			case 'diffuse': brdfReturnedValue = 'EMIT * fd'; break;
+    			case 'specular': brdfReturnedValue = 'EMIT * fr'; break;
+    			case 'normals': brdfReturnedValue = 'normals'; break;
+    			case 'monochrome': brdfReturnedValue = 'vec3(nl)'; break;
+    			default: brdfReturnedValue = 'nl * EMIT * (fd + fr)'; break;
+    		}
+
+            let str;
+
+            str = `
+
+uniform sampler2D normals;
+uniform sampler2D base;
+uniform sampler2D metallic;
+uniform sampler2D roughness;
+uniform vec3 light;
+${gl2? 'in' : 'varying'} vec2 v_texcoord;
+
+float sum(vec3 vector) {
+	return vector.x + vector.y + vector.z;
+}
+
+vec3 brdf_ikehata(vec3 normals, vec3 base, vec3 metallic, vec3 roughness, vec3 light) {
+	float EMIT = 4.0;
+    float SPECULAR = 1.0;
+	float PI = 3.1415926535;
+	vec3 V = vec3(0, 0, 1);
+	vec3 L = light;
+
+	vec3 N = normals * 2.0 - 1.0;
+	N = normalize(N);
+	vec3 B = base;
+	float M = metallic[0];
+	float R = roughness[0];
+
+	// Experimental the angle between l and v should always be fixed
+	vec3 hf = 0.5 * (L + V);
+	hf = normalize(hf);
+	float nl = sum(N * L);
+	float nv = sum(N * V);
+	float nh = sum(N * hf);
+	float lh = sum(L * hf);
+
+	// Diffuse
+	float FD90 = 0.5 + 2.0 * (lh * R);
+	float FD = ( 1.0 + (FD90 - 1.0) * (1.0 - nl) * (1.0 - nl) * (1.0 - nl) * (1.0 - nl) * (1.0 - nl) ) * ( 1.0 + (FD90 - 1.0) * (1.0 - nv) * (1.0 - nv) * (1.0 - nv) * (1.0 - nv) * (1.0 - nv) );
+
+	// GGX Specular
+	vec3 Cspec0 = 0.08 * SPECULAR * (1.0 - M) + B * M;
+	// Specular Fs
+    vec3 Fs = Cspec0 + (1.0 - Cspec0) * (1.0 - lh) * (1.0 - lh) * (1.0 - lh) * (1.0 - lh) * (1.0 - lh);
+
+	// Specular Gs
+    float a = min(max(1.0e-6, R * R), 1.0);
+    float Gs_L = 1.0 / ( nl + sqrt(a * a + (1.0 - a * a) * nl * nl) + 1.0e-12);
+    float Gs_V = 1.0 / ( nv + sqrt(a * a + (1.0 - a * a) * nv * nv) + 1.0e-12);
+    float Gs = Gs_L * Gs_V;
+
+	// Specular Ds
+    float Ds = a * a / (PI * (1.0 + (a * a - 1.0) * nh * nh) * (1.0 + (a * a - 1.0) * nh * nh) + 1.0e-12);
+
+    vec3 fd = FD * B * (1.0 - M) / PI;
+    vec3 fr = Gs * Fs * Ds;
+
+	return ${brdfReturnedValue};
+}
+
+vec4 data(vec2 v_texcoord) {
+	vec3 color;
+	vec3 n = texture${gl2?'':'2D'}(normals, v_texcoord).rgb;
+	vec3 b = texture${gl2?'':'2D'}(base, v_texcoord).rgb;
+	vec3 m = texture${gl2?'':'2D'}(metallic, v_texcoord).rgb;
+	vec3 r = texture${gl2?'':'2D'}(roughness, v_texcoord).rgb;
+	color = brdf_ikehata(n, b, m, r, light);
+	return vec4(color, 1.0);
+}
+`;
+
+    		return str;
+    	}
+
+    }
+
+    /**
+     * The class LayerImage is derived from Layer and it is responsible for the rendering of simple images.
+     * 
+     * @example
+     * // Create an image layer and add it to the canvans
+     * const layer = new OpenLIME.Layer({
+     *     layout: 'image',
+     *     type: 'image',
+     *     url: '../../assets/lime/image/lime.jpg'
+     * });
+     * lime.addLayer('Base', layer);
+     */
+    class LayerBRDFIkehata extends Layer {
+    	/**
+     	* Displays a simple image.
+     	* An object literal with Layer `options` can be specified.
+    	* The class LayerImage can also be instantiated via the Layer parent class and `options.type='image'`.
+     	*
+    	  Extends {@link Layer}.
+     	* @param {Object} options an object literal with Layer options {@link Layer}, but `options.url` and `options.layout` are required.
+     	* @param {string} options.url The URL of the image
+     	* @param {(string|Layout)} options.layout='image' The layout (the format of the input raster images).
+     	*/
+    	constructor(options) {	
+    		super(options);
+
+    		if(Object.keys(this.rasters).length != 0)
+    			throw "Rasters options should be empty!";
+
+            this.ikehata_maps = ['normals', 'base', 'metallic', 'roughness'];
+    		this.worldRotation = 0;
+
+    		// use url for reference, use this.modes for actual urls
+    		let textureUrls = [];
+    		for (let map of this.ikehata_maps)
+    			textureUrls.push(this.layout.imageUrl(this.url, map));
+
+    		if(this.mask) { 
+    			let url;
+    			if (typeof this.mask === 'string')
+    				url = this.mask;
+    			else
+    				url = this.layout.imageUrl(this.url, 'mask');	
+    			textureUrls.push(url);		
+    		}
+
+    		this.layout.setUrls(textureUrls);
+
+    		const rasterFormat = this.format != null ? this.format : 'vec4';
+    		for (let url of textureUrls) {
+    			let raster = new Raster$1({ format: rasterFormat }); //FIXME select format for GEO stuff
+    			this.rasters.push(raster);
+    		}
+
+    		this.addControl('light', [0, 0]);
+
+    		let shader = new ShaderBRDFIkehata({
+				mask: this.mask,
+			});
+    		this.shaders = {'brdf_ikehata': shader };
+    		this.setShader('brdf_ikehata');
+    	}
+
+    	setLight(light, dt) {
+    		this.setControl('light', light, dt);
+    	}
+
+    	interpolateControls() {
+    		let done = super.interpolateControls();
+    		if (!done) {
+    			let light = this.controls['light'].current.value;
+    			light = this.rotateLight(light);
+    			this.shader.setLight(light);
+    		}
+    		return done;
+    	}
+
+    	draw(transform, viewport) {
+    		this.worldRotation = transform.a + this.transform.a;
+    		return super.draw(transform, viewport);
+    	}
+    }
+
+    Layer.prototype.types['brdf_ikehata'] = (options) => { return new LayerBRDFIkehata(options); };
 
     class ShaderLens extends Shader {
         constructor(options) {
@@ -13452,7 +13766,7 @@ void main() {
     					listener: (event) => {
     						const selectedFile = document.querySelector("#openlime-annotation-file").files[0];
     						const editor = this;
-    						// this.deleteAllAnnotation();
+    						this.deleteAllAnnotation();
     						const reader = new FileReader();
     						reader.readAsText(selectedFile, "UTF-8");
     						reader.onload = function (evt) {
@@ -13742,9 +14056,7 @@ void main() {
     	/** @ignore */
     	loadAnnotationsFromFile(newAnnotations) {
     		//this.annotations = this.annotations.map(a => '@context' in a ? Annotation.fromJsonLd(a): a);
-			for (let newA of newAnnotations)
-				this.layer.annotations.push(newA);
-    		// this.layer.annotations = newAnnotations;
+    		this.layer.annotations = newAnnotations;
     		this.layer.annotations = this.layer.annotations.map(a => new Annotation(a));
     		console.log(this.layer.annotations);
     		for(let a of this.layer.annotations)
@@ -14497,7 +14809,7 @@ vec4 data(vec2 v_texcoord) {
 
     		const rasterFormat = this.format != null ? this.format : 'vec4';
     		for (let url of textureUrls) {
-    			let raster = new Raster({ format: rasterFormat }); //FIXME select format for GEO stuff
+    			let raster = new Raster$1({ format: rasterFormat }); //FIXME select format for GEO stuff
     			this.rasters.push(raster);
     		}
 
@@ -14535,12 +14847,14 @@ vec4 data(vec2 v_texcoord) {
     exports.LayerAnnotation = LayerAnnotation;
     exports.LayerAnnotationImage = LayerAnnotationImage;
     exports.LayerBRDF = LayerBRDF;
+    exports.LayerBRDFIkehata = LayerBRDFIkehata;
     exports.LayerCombiner = LayerCombiner;
     exports.LayerImage = LayerImage;
     exports.LayerLens = LayerLens;
     exports.LayerMaskedImage = LayerMaskedImage;
     exports.LayerNeuralRTI = LayerNeuralRTI;
     exports.LayerPS = LayerPS;
+    exports.LayerRTI = LayerRTI;
     exports.LayerSvgAnnotation = LayerSvgAnnotation;
     exports.Layout = Layout;
     exports.LayoutTileImages = LayoutTileImages;
@@ -14549,12 +14863,13 @@ vec4 data(vec2 v_texcoord) {
     exports.LensDashboardNavigator = LensDashboardNavigator;
     exports.LensDashboardNavigatorRadial = LensDashboardNavigatorRadial;
     exports.PointerManager = PointerManager;
-    exports.Raster = Raster;
+    exports.Raster = Raster$1;
     exports.RenderingMode = RenderingMode;
     exports.Ruler = Ruler;
     exports.ScaleBar = ScaleBar;
     exports.Shader = Shader;
     exports.ShaderBRDF = ShaderBRDF;
+    exports.ShaderBRDFIkehata = ShaderBRDFIkehata;
     exports.ShaderCombiner = ShaderCombiner;
     exports.ShaderFilter = ShaderFilter;
     exports.ShaderFilterColormap = ShaderFilterColormap;
@@ -14564,8 +14879,7 @@ vec4 data(vec2 v_texcoord) {
     exports.ShaderFilterVectorGlyph = ShaderFilterVectorGlyph;
     exports.ShaderGammaFilter = ShaderGammaFilter;
     exports.ShaderNeural = ShaderNeural;
-    exports.ShaderPS = ShaderPS;
-    exports.ShaderRTIMultiLight = ShaderRTIMultiLight;
+    exports.ShaderRTI = ShaderRTI;
     exports.Skin = Skin;
     exports.Tile = Tile;
     exports.Transform = Transform;

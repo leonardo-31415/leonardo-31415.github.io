@@ -87,7 +87,7 @@ function main(){
     infoDialog.hide();
 
     const layerPTM = new OpenLIME.Layer({
-        type: 'rti_multi_light',
+        type: 'rti',
         url: 'data/ptm/info.json',
         layout: 'tarzoom',
         transform: { x: 0, y: 0, z: 1, a: 0 },
@@ -98,16 +98,11 @@ function main(){
         shaderOptions: {
             albedo: false,
             normals: false,
-            mask: 'data/mask/mask.tzi',
-            secondLight: false,
-            // secondLight: {
-            //     intensity: [1.0, 1.0],
-            //     weight: 0.5}
+            mask: 'data/mappe/mask.tzi',
         }
     });
     layerPTM.type = 'rti';
     lime.addLayer('layerPTM', layerPTM);
-
     // console.log(layerPTM);
 
     const layerNeural = new OpenLIME.Layer({
@@ -120,38 +115,48 @@ function main(){
         overlay: false,
         section: "Layers",
         shaderOptions: {
-            albedo: false,
+            albedo: 'data/mappe/albedo.tzi',
             normals: false,
-            mask: 'data/mask/mask.tzi',
-            secondLight: false,
-            // secondLight: {
-            //     intensity: [1.0, 1.0],
-            //     weight: 0.5}
+            mask: 'data/mappe/mask.tzi',
         }
     });
     layerNeural.type = 'neural';
     lime.addLayer('layerNeural', layerNeural);
     // console.log(layerNeural);
 
-    const layerPS = new OpenLIME.Layer({
-        type: 'ps',
-        url: 'data/mappe/albedo.tzi',
-        mask: 'data/mask/mask.tzi',
+    const layerBRDF = new OpenLIME.Layer({
+        type: 'brdf_ikehata',
+        url: 'data/brdf/base.tzi',
+        mask: 'data/mappe/mask.tzi',
         layout: 'tarzoom',
         transform: { x: 0, y: 0, z: 1, a: 0 },
         zindex: 0,
-        label: 'Static Map PS',
+        label: 'BRDF',
         overlay: false,
         section: "Layers",
-        // shaderOptions: {
-        //     albedo: false,
-        //     // normals: 'data/normals/normals.tzi',
-        //     // mask: 'data/mask/mask.tzi',
-        //     secondLight: false,
-        // }
     });
-    layerPS.type = 'ps';
-    lime.addLayer('layerPS', layerPS);
+    layerNeural.type = 'brdf_ikehata';
+    lime.addLayer('layerBRDF', layerBRDF);
+    // console.log(layerBRDF);
+
+    // const layerPS = new OpenLIME.Layer({
+    //     type: 'ps',
+    //     url: 'data/mappe/albedo.tzi',
+    //     mask: 'data/mappe/mask.tzi',
+    //     layout: 'tarzoom',
+    //     transform: { x: 0, y: 0, z: 1, a: 0 },
+    //     zindex: 0,
+    //     label: 'Static Map PS',
+    //     overlay: false,
+    //     section: "Layers",
+    //     // shaderOptions: {
+    //     //     albedo: false,
+    //     //     // normals: 'data/normals/normals.tzi',
+    //     //     // mask: 'data/mask/mask.tzi',
+    //     // }
+    // });
+    // layerPS.type = 'ps';
+    // lime.addLayer('layerPS', layerPS);
 
 
     // user interface configuration
@@ -159,18 +164,7 @@ function main(){
     // will be created. Otherwise, an array of strings must be given
 
     // Define annotation parameters
-    let annotationServer = 'http://localhost:3000/ol';
-    let annotationFile = 'assets/annotations/annotations.json'
-    
-    const classParam = {
-        '': { style: { stroke: '#000' }, label: '' },
-        'class1': { style: { stroke: '#770' }, label: 'A' },
-        'class2': { style: { stroke: '#707' }, label: 'B' },
-        'class3': { style: { stroke: '#777' }, label: 'C' },
-        'class4': { style: { stroke: '#070' }, label: 'D' },
-        'class5': { style: { stroke: '#007' }, label: 'E' },
-        'class6': { style: { stroke: '#077' }, label: 'F' },
-    };
+    // let annotationServer = 'https://SERVERNAME';
 
     let aOptions = {
         label: 'Annotations',
@@ -186,7 +180,6 @@ function main(){
         .selected { stroke-width:3; }
         `,
         // annotations: annotationServer,
-        // annotations: annotationFile,
         annotations: [],
         overlay: true,
     }
@@ -207,19 +200,8 @@ function main(){
     layerAnnotation.type = 'svg_annotations';
     lime.addLayer('layerAnnotation', layerAnnotation);
 
-    // If editorEnable, create a SVG annotation Editor
-    // if (editorEnable) {
-    //     const editor = new EditorSvgAnnotation(lime, layerAnnotation, {
-    //         classes: classParam
-    //     });
-    //     editor.createCallback = (anno) => { console.log("Created annotation: ", anno); processRequest(anno, 'create'); return true; };
-    //     editor.deleteCallback = (anno) => { console.log("Deleted annotation: ", anno); processRequest(anno, 'delete'); return true; };
-    //     editor.updateCallback = (anno) => { console.log("Updated annotation: ", anno); processRequest(anno, 'update'); return true; };
-    // }
-
     let ui = new OpenLIME.UIBasic(lime, { skin: 'skin/skin.svg', showLightDirections: true});
 
-    
     const editor = new OpenLIME.AnnotationEditor(lime, layerAnnotation, {
         // classes: classParam
     });
@@ -398,20 +380,7 @@ function main(){
     addSecondLight(ui);
 
 
-    console.log(layerAnnotation);
-
-
-    // ui.menu.push({ section: "Filters" });
-    // let filter;
-    // // gamma filter
-    // filter = new GammaFilter({label: 'Gamma', uniform: 'gamma', value: 2.2, min: 0, max: 3, step: 0.1});
-    // addFilter(ui, filter);
-    // // unsharp filter
-    // filter = new UnsharpFilter({label: 'Unsharp', uniform: 'unsharp', value: 10.0, min: 0, max: 20, step: 1});
-    // addFilter(ui, filter);
-
-    // ui.menu.push({ section: "Options" });
-    // addSecondLight(ui);
+    // console.log(layerAnnotation);
 }
 
 //autodetect type ------------------------------------------------------------------
