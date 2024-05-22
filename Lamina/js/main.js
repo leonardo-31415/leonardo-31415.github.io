@@ -70,6 +70,65 @@ class UnsharpFilter extends OpenLIME.ShaderFilter {
     }
 }
 
+// CLASS FOR MULTI LIGHT BUTTONS
+
+class MultiLightButton {
+    constructor(options) {
+        this.modes = {
+            'Mirror light': false,
+            'Azimuth light': false,
+            'Smart light': false,
+        };
+        this.viewer = null;
+        this.ui = null;
+        this.buttons = [];
+
+        Object.assign(this, options);
+
+        for (let mode of Object.keys(this.modes)) {
+            this.createButton(mode)
+        }
+    }
+
+    clickAction(mode, active) {
+        for (let layer of Object.values(this.viewer.canvas.layers)){
+        
+            if (!layer.shader)
+                continue;
+            
+            let shader = layer.neuralShader ? layer.neuralShader : layer.shader;
+            shader[mode] = active;
+            shader.needsUpdate = true;
+            if (layer.neuralShader)
+                layer.forceRelight();
+            layer.emit('update');
+        }
+        // this.ui.updateMenu(this.ui.menu.layer); // Update menu (run status() callback)
+    }
+
+    createButton(mode) {
+        let active = this.modes[mode];
+        let button = {
+            button: mode,
+            label: 'light',
+            onclick: () => { 
+                for (let mode of Object.keys(this.modes))
+                    this.clickAction(mode,false);
+                active = !active;
+                this.clickAction(mode, active);
+                this.ui.updateMenu(this.ui.menu.layer); // Update menu (run status() callback)
+            },
+            status: () => {
+                return active ? 'active' : '';
+            }
+        }
+        this.buttons.push(button);
+        this.ui.menu.layer.list.push(button);
+    }
+}
+
+// ---------------------------------------------------------------------------------
+
 let lime = new OpenLIME.Viewer('.openlime', { background: 'black', canvas: { preserveDrawingBuffer: true} });
 lime.camera.bounded = false;
 
@@ -104,6 +163,25 @@ function main(){
     layerPTM.type = 'rti';
     lime.addLayer('layerPTM', layerPTM);
     // console.log(layerPTM);
+
+    const layerRBF = new OpenLIME.Layer({
+        type: 'rti',
+        url: 'data/rbf/info.json',
+        layout: 'tarzoom',
+        transform: { x: 0, y: 0, z: 1, a: 0 },
+        zindex: 0,
+        label: 'RBF',
+        overlay: false,
+        section: "Layers",
+        shaderOptions: {
+            albedo: false,
+            normals: false,
+            mask: 'data/mappe/mask.tzi',
+        }
+    });
+    layerPTM.type = 'rti';
+    lime.addLayer('layerRBF', layerRBF);
+    // console.log(layerRBF);
 
     const layerNeural = new OpenLIME.Layer({
         type: 'neural',
@@ -377,7 +455,9 @@ function main(){
     // unsharp filter
     filter = new UnsharpFilter({label: 'Unsharp', uniform: 'unsharp', value: 10.0, min: 0, max: 20, step: 1});
     addFilter(ui, ui.menu.option, filter);
-    addSecondLight(ui);
+    
+    ui.menu.layer.list.push({section: 'Multi light'});
+    let mlb = new MultiLightButton({viewer: lime, ui: ui});
 
 
     // console.log(layerAnnotation);

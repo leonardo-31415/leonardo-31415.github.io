@@ -8291,9 +8291,24 @@ void main() {
     	}
 
     	/** @ignore */
-    	updateEntry(entry) {
+    	updateEntry(entry, menu = this.menu.layer) {
     		let status = entry.status ? entry.status() : '';
-    		entry.element.classList.toggle('active', status == 'active');
+    		// entry.element.classList.toggle('active', status == 'active');
+
+    		if (entry.label == 'light') {
+    			if (status == 'active') {
+    				for (let e of menu.list)
+    					if (e.label == 'light')
+    						e.element.classList.remove('active');
+    				entry.element.classList.add('active');
+    			}
+    			else {
+    				entry.element.classList.remove('active');
+    			}
+    		}
+
+    		else
+    			entry.element.classList.toggle('active', status == 'active');
 
     		if ('list' in entry)
     			for (let e of entry.list)
@@ -8303,7 +8318,7 @@ void main() {
     	/** @ignore */
     	updateMenu(menu = this.menu.layer) {
     		for (let entry of menu.list)
-    			this.updateEntry(entry);
+    			this.updateEntry(entry, menu);
     	}
 
     	/** @ignore */
@@ -8512,7 +8527,7 @@ void main() {
     		super({});
 
     		Object.assign(this, {
-    			modes: ['light', 'multi light', 'normals', 'diffuse', 'specular'],
+    			modes: ['light', 'normals', 'diffuse', 'specular'],
     			mode: 'normal',
     			type:        ['ptm', 'hsh',  'sh', 'rbf', 'bln'],
     			colorspaces: ['lrgb', 'rgb', 'mrgb', 'mycc'],
@@ -8551,7 +8566,7 @@ void main() {
     			throw Error("Unknown mode: " + mode);
     		this.mode = mode;
 
-    		if( mode != 'light' && mode != 'multi light') {
+    		if( mode != 'light') {
     			let base = this.lightWeights([ 0.612,  0.354, 0.707]);
     			let base1 = this.lightWeights([-0.612,  0.354, 0.707]);
     			let base2 = this.lightWeights([     0, -0.707, 0.707]);
@@ -8580,8 +8595,33 @@ void main() {
 
     		if (this.mode == 'light') {
     			let base = this.lightWeights(light);
+
+    			if (this['Mirror light']) {
+    				let a = Math.atan2(y,x);
+    				let da = 2 * Math.PI / 2;
+    				let x1 = Math.cos(a + da);
+    				let y1 = Math.sin(a + da);
+    				let base1 = this.lightWeights([x1, y1, 0]);
+    				for (let j = 0; j < base.length; j++) {
+    					base[j] = base[j] + base1[j];
+    					base[j] /= 2;
+    				}
+    			}
+
+    			else if (this['Azimuth light']) {
+    				let base1 = this.lightWeights([0, 0, 1]);
+    				for (let j = 0; j < base.length; j++) {
+    					base[j] = base[j] + base1[j];
+    					base[j] /= 2;
+    				}
+    			}
+
+    			else if (this['Smart light']) ;
+
     			this.setUniform('base', base);
     		}
+
+    		/*
     		if (this.mode == 'multi light'){
     			let base = this.lightWeights(light);
     			let a = Math.atan2(y,x);
@@ -8597,6 +8637,8 @@ void main() {
 
     			this.setUniform('base', base);
     		}
+    		*/
+
     		this.setUniform('light', light);
     	}
     	setSpecularExp(value) {
@@ -8753,7 +8795,7 @@ const int ny1 = ${this.yccplanes[1]};
 vec4 data(vec2 v_texcoord) {
 
 `;
-    		if(this.mode == 'light' || this.mode == 'multi light') {
+    		if(this.mode == 'light') {
     			str += `
 	vec4 color = render(base, v_texcoord);
 `;
@@ -8782,16 +8824,48 @@ vec4 data(vec2 v_texcoord) {
     			break;
 
     			case 'diffuse': 
-    			if(this.colorspace == 'lrgb' || this.colorspace == 'rgb')
+    			if(this.colorspace == 'lrgb' || this.colorspace == 'rgb') {
     				str += `
 vec4 diffuse = texture${gl2?'':'2D'}(plane0, v_texcoord);
 float s = dot(light, normal);
 color = vec4(s * diffuse.xyz, 1);
 `;
-    			else
+    				if (this['Mirror light'])
+    					str += `
+float s1 = dot(vec3(-light.x,-light.y,light.z),normal);
+color = color * 0.5 + vec4(s1 * diffuse.xyz, 1) * 0.5;				
+`;
+    				if (this['Azimuth light'])
+    					str += `
+float s1 = dot(vec3(0,0,1),normal);
+color = color * 0.5 + vec4(s1 * diffuse.xyz, 1) * 0.5;				
+`;	
+    // 				if (this['Smart light'])
+    // 					str += `
+    // float s1 = dot(vec3(0,0,1),normal);
+    // color = color * 0.5 + vec4(s1 * diffuse.xyz, 1) * 0.5;				
+    // `;	
+    			}
+    			else {
     				str += `
 color = vec4(vec3(dot(light, normal)), 1);
 `;
+    				if (this['Mirror light'])
+    					str += `
+float s1 = dot(vec3(-light.x,-light.y,light.z),normal);
+color = color * 0.5 + vec4(vec3(s1), 1) * 0.5;				
+`;	
+    				if (this['Azimuth light'])
+    					str += `
+float s1 = dot(vec3(0,0,1),normal);
+color = color * 0.5 + vec4(vec3(s1), 1) * 0.5;				
+`;	
+    // 				if (this['Smart light'])
+    // 					str += `
+    // float s1 = dot(vec3(0,0,1),normal);
+    // color = color * 0.5 + vec4(s1 * diffuse.xyz, 1) * 0.5;				
+    // `;	
+    			}
     			break;
 
     			case 'specular': 
@@ -8800,6 +8874,21 @@ color = vec4(vec3(dot(light, normal)), 1);
 	//color = vec4(render(base).xyz*s, 1.0);
 	color = vec4(s, s, s, 1.0);
 `;
+    			if (this['Mirror light'])
+    				str += `
+float s1 = pow(dot(vec3(-light.x,-light.y,light.z), normal), specular_exp);
+color = color * 0.5 + vec4(vec3(s1), 1) * 0.5;				
+`;	
+    			if (this['Azimuth light'])
+    				str += `
+float s1 = pow(dot(vec3(0,0,1), normal), specular_exp);
+color = color * 0.5 + vec4(vec3(s1), 1) * 0.5;				
+`;	
+    // 			if (this['Smart light'])
+    // 				str += `
+    // float s1 = dot(vec3(0,0,1),normal);
+    // color = color * 0.5 + vec4(s1 * diffuse.xyz, 1) * 0.5;				
+    // `;
     			break;
     			}
     		}
@@ -8814,7 +8903,7 @@ color = vec4(vec3(dot(light, normal)), 1);
     class LRGB {
     	static render(njpegs, gl2) {
     		let str = `
-vec4 render(vec3 base[np1]) {
+vec4 render(vec3 base[np1], vec2 v_texcoord) {
 	float l = 0.0;
 `;
     		for(let j = 1, k = 0; j < njpegs; j++, k+=3) {
@@ -8865,7 +8954,7 @@ vec4 render(vec3 base[np1], vec2 v_texcoord) {
     class MRGB {
     	static render(njpegs, gl2) {
     		let str = `
-vec4 render(vec3 base[np1]) {
+vec4 render(vec3 base[np1], vec2 v_texcoord) {
 	vec3 rgb = base[0];
 	vec4 c;
 	vec3 r;
@@ -8900,7 +8989,7 @@ vec3 toRgb(vec3 ycc) {
 	return rgb;
 }
 
-vec4 render(vec3 base[np1]) {
+vec4 render(vec3 base[np1], vec2 v_texcoord) {
 	vec3 rgb = base[0];
 	vec4 c;
 	vec3 r;
@@ -9252,7 +9341,7 @@ vec4 render(vec3 base[np1]) {
     		super({});
 
     		Object.assign(this, {
-    			modes: ['light', 'multi light', 'albedo blend'],
+    			modes: ['light', 'albedo blend'],
     			mode: 'light',
 
     			nplanes: null,	 //number of coefficient planes
@@ -9420,17 +9509,25 @@ vec4 data(vec2 v_texcoord) {
 	vec4 color;
 `;
 
-    		if (this.mode == 'light')
-    			str += `
+
+    		str += `
 	color = render(lights, v_texcoord);
 `;
 
-    		if (this.mode == 'multi light')
+    		if (this['Mirror light'])
     			str += `
-	color = render(lights, v_texcoord) * light_intensity + render(-lights, v_texcoord) * (1.0 - light_intensity);
+	color = color * 0.5 + render(vec2(-lights.x,-lights.y), v_texcoord) * 0.5;
 `;
+    		else if (this['Azimuth light'])
+    		str += `
+	color = color * 0.5 + render(vec2(0,0), v_texcoord) * 0.5;
+`;
+    // 		if (this['Smart light'])
+    // 		str += `
+    // 	color = color * 0.5 + render(vec2(-lights.x,-lights.y), v_texcoord);
+    // `;
 
-    		else if (this.mode == 'albedo blend')
+    		if (this.mode == 'albedo blend')
     			str += `
 	vec4 albedo_pixel = texture(albedo, v_texcoord);
 	color = render(lights, v_texcoord) * light_intensity + albedo_pixel * (1.0 - light_intensity);
@@ -10263,10 +10360,6 @@ uniform sampler2D roughness;
 uniform vec3 light;
 ${gl2? 'in' : 'varying'} vec2 v_texcoord;
 
-float sum(vec3 vector) {
-	return vector.x + vector.y + vector.z;
-}
-
 vec3 brdf_ikehata(vec3 normals, vec3 base, vec3 metallic, vec3 roughness, vec3 light) {
 	float EMIT = 4.0;
     float SPECULAR = 1.0;
@@ -10283,10 +10376,10 @@ vec3 brdf_ikehata(vec3 normals, vec3 base, vec3 metallic, vec3 roughness, vec3 l
 	// Experimental the angle between l and v should always be fixed
 	vec3 hf = 0.5 * (L + V);
 	hf = normalize(hf);
-	float nl = sum(N * L);
-	float nv = sum(N * V);
-	float nh = sum(N * hf);
-	float lh = sum(L * hf);
+	float nl = dot(N, L);
+	float nv = dot(N, V);
+	float nh = dot(N, hf);
+	float lh = dot(L, hf);
 
 	// Diffuse
 	float FD90 = 0.5 + 2.0 * (lh * R);
@@ -10319,6 +10412,22 @@ vec4 data(vec2 v_texcoord) {
 	vec3 m = texture${gl2?'':'2D'}(metallic, v_texcoord).rgb;
 	vec3 r = texture${gl2?'':'2D'}(roughness, v_texcoord).rgb;
 	color = brdf_ikehata(n, b, m, r, light);
+`;
+
+    		if (this['Mirror light'])
+    			str += `
+	color = color * 0.5 + brdf_ikehata(n, b, m, r, vec3(-light.x,-light.y,light.z)) * 0.5;		
+`;
+    		else if (this['Azimuth light'])
+    			str += `
+color = color * 0.5 + brdf_ikehata(n, b, m, r, vec3(0,0,1)) * 0.5;		
+`;
+    // 		else if (this['Smart light'])
+    // 			str += `
+    // color = color * 0.5 + brdf_ikehata(n, b, m, r, vec3(-light.x,-light.y,light.z)) * 0.5;		
+    // `;
+
+    		str += `
 	return vec4(color, 1.0);
 }
 `;
@@ -10385,8 +10494,8 @@ vec4 data(vec2 v_texcoord) {
     		this.addControl('light', [0, 0]);
 
     		let shader = new ShaderBRDFIkehata({
-				mask: this.mask,
-			});
+    			mask: this.mask,
+    		});
     		this.shaders = {'brdf_ikehata': shader };
     		this.setShader('brdf_ikehata');
     	}
@@ -13586,11 +13695,11 @@ void main() {
     			updateCallback: null,
     			deleteCallback: null,
     			classes: {
-    				'': {stroke: '#000000', fill: ''},
-    				'sea': { stroke: '#0000ff', fill: '' },
-    				'grass': { stroke: '#00ff00', fill: '' },
-    				'fire': { stroke: '#ff0000', fill: '' },
-    				'air': { stroke: '#777777', fill: '' },
+    				'black': {stroke: '#000000', fill: ''},
+    				'blue': { stroke: '#0000ff', fill: '' },
+    				'green': { stroke: '#00ff00', fill: '' },
+    				'red': { stroke: '#ff0000', fill: '' },
+    				'white': { stroke: '#ffffff', fill: '' },
     			},
     			tools: {
     				point: {
@@ -13695,7 +13804,15 @@ void main() {
     				},
     			},
     			class: {
-    				html: '<select name="class" id="openlime-annotation-class"> <option value="">Class</option> <option value="sea">Sea</option> <option value="grass">Grass</option> <option value="fire">Fire</option> <option value="air">Air</option> </select>',
+    				html: `
+					<select name="class" id="openlime-annotation-class">
+						<option value="black">Black</option>
+						<option value="blue">Blue</option>
+						<option value="green">Green</option>
+						<option value="red">Red</option>
+						<option value="white">White</option>
+					</select>
+				`,
     				element: null,
     				event:  { 
     					type: 'change', 
@@ -13711,7 +13828,7 @@ void main() {
     				},
     			},
     			stroke: {
-    				html: '<input type="color" name="stroke" value="#ff0000" id="openlime-annotation-stroke"/>',
+    				html: '<input type="color" name="stroke" value="#000000" id="openlime-annotation-stroke"/>',
     				element: null,
     				event:  { 
     					type: 'change', 
@@ -13892,7 +14009,7 @@ void main() {
     	updateAnnotationEditor() {
     		let anno = this.annotation;
     		if (!anno.class)
-    			anno.class = '';
+    			anno.class = 'black';
 
     		document.querySelector('#openlime-annotation-label').value = anno.label || '';
     		document.querySelector('#openlime-annotation-class').value = anno.class || '';
