@@ -446,8 +446,10 @@ function main(){
     addButton(ui, ui.menu.layer, 'stress_color', 'Color');
     addButton(ui, ui.menu.layer, 'stress_normals', 'Normals');
     
-    ui.menu.layer.list.push({section: 'Multi light'});
-    let mlb = new MultiLightButton({viewer: lime, ui: ui});
+    ui.menu.layer.list.push({section:"Multi light"});
+    addButton(ui, ui.menu.layer, 'Mirror light', 'Mirro light');
+    addButton(ui, ui.menu.layer, 'Azimuth light', 'Azimuth light');
+    addButton(ui, ui.menu.layer, 'Smart light', 'Smart light');
 
     // console.log(layerAnnotation);
 }
