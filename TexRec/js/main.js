@@ -436,16 +436,18 @@ function main(){
 
     let filter;
     // gamma filter
-    filter = new GammaFilter({label: 'Gamma', uniform: 'gamma', value: 2.2, min: 0, max: 3, step: 0.1});
+    filter = new GammaFilter({label: 'Gamma correction', uniform: 'gamma', value: 2.2, min: 0, max: 3, step: 0.1});
     addFilter(ui, ui.menu.option, filter);
     // unsharp filter
-    filter = new UnsharpFilter({label: 'Unsharp', uniform: 'unsharp', value: 10.0, min: 0, max: 20, step: 1});
+    filter = new UnsharpFilter({label: 'Unsharp masking', uniform: 'unsharp', value: 10.0, min: 0, max: 20, step: 1});
     addFilter(ui, ui.menu.option, filter);
+
+    ui.menu.layer.list.push({section:"Stress (BRDF)"});
+    addButton(ui, ui.menu.layer, 'stress_color', 'Color');
+    addButton(ui, ui.menu.layer, 'stress_normals', 'Normals');
     
     ui.menu.layer.list.push({section: 'Multi light'});
     let mlb = new MultiLightButton({viewer: lime, ui: ui});
-
-    addButton(ui, 'stress');
 
     // console.log(layerAnnotation);
 }
@@ -545,10 +547,10 @@ function addFilter(ui, menu, filter){
     menu.list.push(slider);
 }
 
-function addButton(ui, value){
+function addButton(ui, menu, value, name){
     let active = false;
     const button = {
-        button: value,
+        button: name,
         onclick: () => { 
             active = !active;
             for (let layer of Object.values(lime.canvas.layers)){
@@ -563,13 +565,13 @@ function addButton(ui, value){
                     layer.forceRelight();
                 layer.emit('update');
             }
-            ui.updateMenu(ui.menu.option); // Update menu (run status() callback)
+            ui.updateMenu(menu); // Update menu (run status() callback)
         },
         status: () => {
             return active ? 'active' : '';
         }
     };
-    ui.menu.option.list.push(button);
+    menu.list.push(button);
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------

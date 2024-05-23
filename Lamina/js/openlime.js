@@ -7831,7 +7831,7 @@ void main() {
     		entry.element.classList.toggle('active', active); */
 
     		this.menu.layer.list.push({ section: "Layers" });
-    		this.menu.option.list.push({ section: "Options" });
+    		this.menu.option.list.push({ section: "Filters" });
     		this.menu.annotation.list.push({ section: "Annotations" });
 
     		for (let [id, layer] of Object.entries(this.viewer.canvas.layers)) {
@@ -10318,7 +10318,7 @@ vec4 data() {
     		super({});
 
     		Object.assign(this, {
-    			modes: ['color', 'stress', 'monochrome', 'cavity', 'curvature', 'normals'],
+    			modes: ['color', 'monochrome', 'cavity', 'curvature', 'normals'],
     			mode: 'color',
 
     			nplanes: null,	 //number of coefficient planes
@@ -10337,7 +10337,8 @@ vec4 data() {
     			'roughness',
     			'cavity',
     			'curvature',
-    			'stress',
+    			'stress_color',
+    			'stress_normals',
     		];
 
     		this.samplers = [];
@@ -10377,8 +10378,8 @@ vec4 data() {
     		}
 
     		let BRDFIkehata = `
-	vec3 B = texture${gl2?'':'2D'}(${this.mode=='stress'?'stress':'base'},v_texcoord).rgb;
-	vec3 N = texture${gl2?'':'2D'}(normals, v_texcoord).rgb;
+	vec3 B = texture${gl2?'':'2D'}(${this.stress_color?'stress_color':'base'},v_texcoord).rgb;
+	vec3 N = texture${gl2?'':'2D'}(${this.stress_normals?'stress_normals':'normals'}, v_texcoord).rgb;
 	float M = texture${gl2?'':'2D'}(metallic, v_texcoord)[0];
 	float R = texture${gl2?'':'2D'}(roughness, v_texcoord)[0];
 
@@ -10424,7 +10425,7 @@ vec4 data() {
 `;
 
     		let relightMap = `
-	vec3 N = texture${gl2?'':'2D'}(normals, v_texcoord).rgb;
+	vec3 N = texture${gl2?'':'2D'}(${this.stress_normals?'stress_normals':'normals'}, v_texcoord).rgb;
 	vec3 M = texture${gl2?'':'2D'}(${this.mode}, v_texcoord).rgb;
 	vec3 L = light;
 	N = N * 2.0 - 1.0;
@@ -10454,29 +10455,30 @@ uniform sampler2D metallic;
 uniform sampler2D roughness;
 uniform sampler2D cavity;
 uniform sampler2D curvature;
-uniform sampler2D stress;
+uniform sampler2D stress_color;
+uniform sampler2D stress_normals;
 uniform vec3 light;
 ${gl2? 'in' : 'varying'} vec2 v_texcoord;
 
-vec3 render(vec3 light) {
+vec3 render(vec3 light, vec2 v_texcoord) {
 ${renderContent}
 }
 
 vec4 data(vec2 v_texcoord) {
 	vec3 color;
-	color = render(light);
+	color = render(light, v_texcoord);
 `;
     		if (this['Mirror light'])
     			str += `
-	color = color * 0.5 + render(vec3(-light.x,-light.y,light.z)) * 0.5;		
+	color = color * 0.5 + render(vec3(-light.x,-light.y,light.z), v_texcoord) * 0.5;		
 `;
     		else if (this['Azimuth light'])
     			str += `
-color = color * 0.5 + render(vec3(0,0,1)) * 0.5;		
+color = color * 0.5 + render(vec3(0,0,1), v_texcoord) * 0.5;		
 `;
     // 		else if (this['Smart light'])
     // 			str += `
-    // color = color * 0.5 + brdf_ikehata(n, b, m, r, vec3(-light.x,-light.y,light.z)) * 0.5;		
+    // color = color * 0.5 + brdf_ikehata(n, b, m, r, vec3(-light.x,-light.y,light.z), v_texcoord) * 0.5;		
     // `;
     		str += `
 	return vec4(color, 1.0);
@@ -10524,7 +10526,8 @@ color = color * 0.5 + render(vec3(0,0,1)) * 0.5;
     			'roughness',
     			'cavity',
     			'curvature',
-    			'stress',
+    			'stress_color',
+    			'stress_normals',
     		];
     		this.worldRotation = 0;
 
