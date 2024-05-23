@@ -158,30 +158,12 @@ function main(){
             albedo: false,
             normals: false,
             mask: 'data/mappe/mask.tzi',
+            // stress: 'data/brdf/stress.tzi',
         }
     });
     layerPTM.type = 'rti';
     lime.addLayer('layerPTM', layerPTM);
-    // console.log(layerPTM);
-
-    const layerRBF = new OpenLIME.Layer({
-        type: 'rti',
-        url: 'data/rbf/info.json',
-        layout: 'tarzoom',
-        transform: { x: 0, y: 0, z: 1, a: 0 },
-        zindex: 0,
-        label: 'RBF',
-        overlay: false,
-        section: "Layers",
-        shaderOptions: {
-            albedo: false,
-            normals: false,
-            mask: 'data/mappe/mask.tzi',
-        }
-    });
-    layerPTM.type = 'rti';
-    lime.addLayer('layerRBF', layerRBF);
-    // console.log(layerRBF);
+    console.log(layerPTM);
 
     const layerNeural = new OpenLIME.Layer({
         type: 'neural',
@@ -205,13 +187,17 @@ function main(){
     const layerBRDF = new OpenLIME.Layer({
         type: 'brdf_ikehata',
         url: 'data/brdf/base.tzi',
-        mask: 'data/mappe/mask.tzi',
+        // mask: 'data/mappe/mask.tzi',
+        // stress: 'data/mappe/stress.tzi',
         layout: 'tarzoom',
         transform: { x: 0, y: 0, z: 1, a: 0 },
         zindex: 0,
         label: 'BRDF',
         overlay: false,
         section: "Layers",
+        shaderOptions: {
+            mask: 'data/mappe/mask.tzi',
+        }
     });
     layerNeural.type = 'brdf_ikehata';
     lime.addLayer('layerBRDF', layerBRDF);
@@ -459,6 +445,7 @@ function main(){
     ui.menu.layer.list.push({section: 'Multi light'});
     let mlb = new MultiLightButton({viewer: lime, ui: ui});
 
+    addButton(ui, 'stress');
 
     // console.log(layerAnnotation);
 }
@@ -558,31 +545,28 @@ function addFilter(ui, menu, filter){
     menu.list.push(slider);
 }
 
-function addSecondLight(ui){
-    let secondLight = false;
+function addButton(ui, value){
+    let active = false;
     const button = {
-        button: "Second Light",
+        button: value,
         onclick: () => { 
-            secondLight = !secondLight;
+            active = !active;
             for (let layer of Object.values(lime.canvas.layers)){
-                if (layer.type == 'rti'){
-                    layer.shader.secondLight = secondLight;
-                    layer.shader.needsUpdate = true;
-                    layer.shader.emit('update');
-                }
-                if (layer.type == 'neural'){
-                    layer.neuralShader.secondLight = secondLight;
-                    layer.neuralShader.needsUpdate = true;
-                    layer.neuralShader.emit('update');
-                    // layer.imageShader.needsUpdate = true;
-                    // layer.imageShader.emit('update');
-                    // layer.emit('update');
-                }
+        
+                if (!layer.shader)
+                    continue;
+                
+                let shader = layer.neuralShader ? layer.neuralShader : layer.shader;
+                shader[value] = active;
+                shader.needsUpdate = true;
+                if (layer.neuralShader)
+                    layer.forceRelight();
+                layer.emit('update');
             }
             ui.updateMenu(ui.menu.option); // Update menu (run status() callback)
         },
         status: () => {
-            return secondLight ? 'active' : '';
+            return active ? 'active' : '';
         }
     };
     ui.menu.option.list.push(button);

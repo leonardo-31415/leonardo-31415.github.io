@@ -8527,7 +8527,7 @@ void main() {
     		super({});
 
     		Object.assign(this, {
-    			modes: ['light', 'normals', 'diffuse', 'specular'],
+    			modes: ['light', 'stress', 'specular'],
     			mode: 'normal',
     			type:        ['ptm', 'hsh',  'sh', 'rbf', 'bln'],
     			colorspaces: ['lrgb', 'rgb', 'mrgb', 'mycc'],
@@ -8593,7 +8593,7 @@ void main() {
     		let z = Math.sqrt(Math.max(0, 1 - x*x - y*y));
     		light = [x, y, z];
 
-    		if (this.mode == 'light') {
+    		if (this.mode == 'light' || this.mode == 'stress') {
     			let base = this.lightWeights(light);
 
     			if (this['Mirror light']) {
@@ -8660,6 +8660,8 @@ void main() {
 
     		for(let i = 0; i < this.njpegs; i++)
     			this.samplers.push({ id:i, name:'plane'+i, type:'vec3' });
+
+    		this.samplers.push({ id:this.samplers.length, name:'stress', type:'vec3' });
 
     		if (this.mask)
     			this.samplers.push({ id:this.samplers.length, name:'mask', type:'vec3'});
@@ -8775,6 +8777,10 @@ uniform sampler2D plane${n};
 uniform sampler2D normals;
 `;
 
+    		str += `
+uniform sampler2D stress;
+`;
+
     		if(this.colorspace == 'mycc')
     			str +=
 `
@@ -8785,7 +8791,7 @@ const int ny1 = ${this.yccplanes[1]};
 
     		switch(this.colorspace) {
     			case 'lrgb':  str += LRGB.render(this.njpegs, gl2); break;
-    			case 'rgb' :  str +=  RGB.render(this.njpegs, gl2); break;
+    			case 'rgb' :  str +=  RGB.render(this.njpegs, gl2, this); break;
     			case 'mrgb':  str += MRGB.render(this.njpegs, gl2); break;
     			case 'mycc':  str += MYCC.render(this.njpegs, this.yccplanes[0], gl2); break;
     		}
@@ -8795,7 +8801,7 @@ const int ny1 = ${this.yccplanes[1]};
 vec4 data(vec2 v_texcoord) {
 
 `;
-    		if(this.mode == 'light') {
+    		if(this.mode == 'light' || this.mode == 'stress') {
     			str += `
 	vec4 color = render(base, v_texcoord);
 `;
@@ -8928,15 +8934,24 @@ vec4 render(vec3 base[np1], vec2 v_texcoord) {
 
 
     class RGB {
-    	static render(njpegs, gl2) {
+    	static render(njpegs, gl2, shder) {
     		let str = `
 vec4 render(vec3 base[np1], vec2 v_texcoord) {
 	vec4 rgb = vec4(0, 0, 0, 1);`;
 
     		for(let j = 0; j < njpegs; j++) {
-    			str += `
+    			if (j == 0 && shder.mode == 'stress')
+    				str += `
 	{
-		vec4 c = texture${gl2?'':'2D'}(plane${j}, v_texcoord);
+		vec4 c = texture${gl2?'':'2D'}(stress, v_texcoord);				
+`;
+    			else
+    				str += `
+	{
+		vec4 c = texture${gl2?'':'2D'}(plane${j}, v_texcoord);			
+`;
+    			str += `
+		// vec4 c = texture${gl2?'':'2D'}(plane${j}, v_texcoord);
 		rgb.x += base[${j}].x*(c.x - bias[${j}].x)*scale[${j}].x;
 		rgb.y += base[${j}].y*(c.y - bias[${j}].y)*scale[${j}].y;
 		rgb.z += base[${j}].z*(c.z - bias[${j}].z)*scale[${j}].z;
@@ -9283,6 +9298,11 @@ vec4 render(vec3 base[np1], vec2 v_texcoord) {
     				this.rasters.push(raster);
     			}
 
+    			if (typeof this.shader.stress === 'string')
+    				textureUrls.push(this.shader.stress);
+    			else
+    				textureUrls.push(this.layout.imageUrl(this.url, 'stress'));	
+
     			if(this.shader.mask) { 
     				let url;
     				if (typeof this.shader.mask === 'string')
@@ -9299,7 +9319,7 @@ vec4 render(vec3 base[np1], vec2 v_texcoord) {
     				else
     					url = this.layout.imageUrl(this.url, 'normals');	
     				textureUrls.push(url);		
-    			}			
+    			}	
 
     			this.layout.setUrls(textureUrls);
 
@@ -9341,7 +9361,7 @@ vec4 render(vec3 base[np1], vec2 v_texcoord) {
     		super({});
 
     		Object.assign(this, {
-    			modes: ['light', 'albedo blend'],
+    			modes: ['light', 'ambient'],
     			mode: 'light',
 
     			nplanes: null,	 //number of coefficient planes
@@ -9527,7 +9547,7 @@ vec4 data(vec2 v_texcoord) {
     // 	color = color * 0.5 + render(vec2(-lights.x,-lights.y), v_texcoord);
     // `;
 
-    		if (this.mode == 'albedo blend')
+    		if (this.mode == 'ambient')
     			str += `
 	vec4 albedo_pixel = texture(albedo, v_texcoord);
 	color = render(lights, v_texcoord) * light_intensity + albedo_pixel * (1.0 - light_intensity);
@@ -10298,7 +10318,7 @@ vec4 data() {
     		super({});
 
     		Object.assign(this, {
-    			modes: ['color', 'diffuse', 'specular', 'normals', 'monochrome'],
+    			modes: ['color', 'stress', 'monochrome', 'cavity', 'curvature', 'normals'],
     			mode: 'color',
 
     			nplanes: null,	 //number of coefficient planes
@@ -10310,7 +10330,15 @@ vec4 data() {
     		});
     		Object.assign(this, options);
 
-            this.ikehata_maps = ['normals', 'base', 'metallic', 'roughness'];
+            this.ikehata_maps = [
+    			'normals',
+    			'base',
+    			'metallic',
+    			'roughness',
+    			'cavity',
+    			'curvature',
+    			'stress',
+    		];
 
     		this.samplers = [];
             for (let i = 0; i < this.ikehata_maps.length; i++)
@@ -10318,7 +10346,6 @@ vec4 data() {
 
             if (this.mask)
                 this.samplers.push({ id:this.samplers.length, name:'mask', type:'vec3' });
-
 
     		this.uniforms = {
     			light: { type: 'vec3', needsUpdate: true, size: 3, value: [0, 0, 1] },
@@ -10349,29 +10376,20 @@ vec4 data() {
     			default: brdfReturnedValue = 'nl * EMIT * (fd + fr)'; break;
     		}
 
-            let str;
+    		let BRDFIkehata = `
+	vec3 B = texture${gl2?'':'2D'}(${this.mode=='stress'?'stress':'base'},v_texcoord).rgb;
+	vec3 N = texture${gl2?'':'2D'}(normals, v_texcoord).rgb;
+	float M = texture${gl2?'':'2D'}(metallic, v_texcoord)[0];
+	float R = texture${gl2?'':'2D'}(roughness, v_texcoord)[0];
 
-            str = `
+	N = N * 2.0 - 1.0;
+	N = normalize(N);
 
-uniform sampler2D normals;
-uniform sampler2D base;
-uniform sampler2D metallic;
-uniform sampler2D roughness;
-uniform vec3 light;
-${gl2? 'in' : 'varying'} vec2 v_texcoord;
-
-vec3 brdf_ikehata(vec3 normals, vec3 base, vec3 metallic, vec3 roughness, vec3 light) {
 	float EMIT = 4.0;
-    float SPECULAR = 1.0;
+	float SPECULAR = 1.0;
 	float PI = 3.1415926535;
 	vec3 V = vec3(0, 0, 1);
 	vec3 L = light;
-
-	vec3 N = normals * 2.0 - 1.0;
-	N = normalize(N);
-	vec3 B = base;
-	float M = metallic[0];
-	float R = roughness[0];
 
 	// Experimental the angle between l and v should always be fixed
 	vec3 hf = 0.5 * (L + V);
@@ -10388,45 +10406,78 @@ vec3 brdf_ikehata(vec3 normals, vec3 base, vec3 metallic, vec3 roughness, vec3 l
 	// GGX Specular
 	vec3 Cspec0 = 0.08 * SPECULAR * (1.0 - M) + B * M;
 	// Specular Fs
-    vec3 Fs = Cspec0 + (1.0 - Cspec0) * (1.0 - lh) * (1.0 - lh) * (1.0 - lh) * (1.0 - lh) * (1.0 - lh);
+	vec3 Fs = Cspec0 + (1.0 - Cspec0) * (1.0 - lh) * (1.0 - lh) * (1.0 - lh) * (1.0 - lh) * (1.0 - lh);
 
 	// Specular Gs
-    float a = min(max(1.0e-6, R * R), 1.0);
-    float Gs_L = 1.0 / ( nl + sqrt(a * a + (1.0 - a * a) * nl * nl) + 1.0e-12);
-    float Gs_V = 1.0 / ( nv + sqrt(a * a + (1.0 - a * a) * nv * nv) + 1.0e-12);
-    float Gs = Gs_L * Gs_V;
+	float a = min(max(1.0e-6, R * R), 1.0);
+	float Gs_L = 1.0 / ( nl + sqrt(a * a + (1.0 - a * a) * nl * nl) + 1.0e-12);
+	float Gs_V = 1.0 / ( nv + sqrt(a * a + (1.0 - a * a) * nv * nv) + 1.0e-12);
+	float Gs = Gs_L * Gs_V;
 
 	// Specular Ds
-    float Ds = a * a / (PI * (1.0 + (a * a - 1.0) * nh * nh) * (1.0 + (a * a - 1.0) * nh * nh) + 1.0e-12);
+	float Ds = a * a / (PI * (1.0 + (a * a - 1.0) * nh * nh) * (1.0 + (a * a - 1.0) * nh * nh) + 1.0e-12);
 
-    vec3 fd = FD * B * (1.0 - M) / PI;
-    vec3 fr = Gs * Fs * Ds;
+	vec3 fd = FD * B * (1.0 - M) / PI;
+	vec3 fr = Gs * Fs * Ds;
 
-	return ${brdfReturnedValue};
+	return ${brdfReturnedValue};		
+`;
+
+    		let relightMap = `
+	vec3 N = texture${gl2?'':'2D'}(normals, v_texcoord).rgb;
+	vec3 M = texture${gl2?'':'2D'}(${this.mode}, v_texcoord).rgb;
+	vec3 L = light;
+	N = N * 2.0 - 1.0;
+	N = normalize(N);
+	float nl = dot(N, L);
+	return nl * M;
+`;
+
+    		let renderContent;
+    		switch(this.mode) {
+    			case 'cavity':
+    			case 'curvature':
+    			case 'normals':
+    				renderContent = relightMap;
+    				break;
+    			default:
+    				renderContent = BRDFIkehata;
+    				break;
+    		}
+
+            let str = '';
+
+            str += `
+uniform sampler2D normals;
+uniform sampler2D base;
+uniform sampler2D metallic;
+uniform sampler2D roughness;
+uniform sampler2D cavity;
+uniform sampler2D curvature;
+uniform sampler2D stress;
+uniform vec3 light;
+${gl2? 'in' : 'varying'} vec2 v_texcoord;
+
+vec3 render(vec3 light) {
+${renderContent}
 }
 
 vec4 data(vec2 v_texcoord) {
 	vec3 color;
-	vec3 n = texture${gl2?'':'2D'}(normals, v_texcoord).rgb;
-	vec3 b = texture${gl2?'':'2D'}(base, v_texcoord).rgb;
-	vec3 m = texture${gl2?'':'2D'}(metallic, v_texcoord).rgb;
-	vec3 r = texture${gl2?'':'2D'}(roughness, v_texcoord).rgb;
-	color = brdf_ikehata(n, b, m, r, light);
+	color = render(light);
 `;
-
     		if (this['Mirror light'])
     			str += `
-	color = color * 0.5 + brdf_ikehata(n, b, m, r, vec3(-light.x,-light.y,light.z)) * 0.5;		
+	color = color * 0.5 + render(vec3(-light.x,-light.y,light.z)) * 0.5;		
 `;
     		else if (this['Azimuth light'])
     			str += `
-color = color * 0.5 + brdf_ikehata(n, b, m, r, vec3(0,0,1)) * 0.5;		
+color = color * 0.5 + render(vec3(0,0,1)) * 0.5;		
 `;
     // 		else if (this['Smart light'])
     // 			str += `
     // color = color * 0.5 + brdf_ikehata(n, b, m, r, vec3(-light.x,-light.y,light.z)) * 0.5;		
     // `;
-
     		str += `
 	return vec4(color, 1.0);
 }
@@ -10466,18 +10517,37 @@ color = color * 0.5 + brdf_ikehata(n, b, m, r, vec3(0,0,1)) * 0.5;
     		if(Object.keys(this.rasters).length != 0)
     			throw "Rasters options should be empty!";
 
-            this.ikehata_maps = ['normals', 'base', 'metallic', 'roughness'];
+    		this.ikehata_maps = [
+    			'normals',
+    			'base',
+    			'metallic',
+    			'roughness',
+    			'cavity',
+    			'curvature',
+    			'stress',
+    		];
     		this.worldRotation = 0;
+
+    		this.addControl('light', [0, 0]);
+
+    		let shader = new ShaderBRDFIkehata(this.shaderOptions);
+    		this.shaders = {'brdf_ikehata': shader };
+    		this.setShader('brdf_ikehata');
 
     		// use url for reference, use this.modes for actual urls
     		let textureUrls = [];
     		for (let map of this.ikehata_maps)
     			textureUrls.push(this.layout.imageUrl(this.url, map));
 
-    		if(this.mask) { 
+    		// if (typeof this.shader.stress === 'string')
+    		// 	textureUrls.push(this.shader.stress);
+    		// else
+    		// 	textureUrls.push(this.layout.imageUrl(this.url, 'stress'));	
+
+    		if(this.shader.mask) { 
     			let url;
-    			if (typeof this.mask === 'string')
-    				url = this.mask;
+    			if (typeof this.shader.mask === 'string')
+    				url = this.shader.mask;
     			else
     				url = this.layout.imageUrl(this.url, 'mask');	
     			textureUrls.push(url);		
@@ -10490,14 +10560,6 @@ color = color * 0.5 + brdf_ikehata(n, b, m, r, vec3(0,0,1)) * 0.5;
     			let raster = new Raster$1({ format: rasterFormat }); //FIXME select format for GEO stuff
     			this.rasters.push(raster);
     		}
-
-    		this.addControl('light', [0, 0]);
-
-    		let shader = new ShaderBRDFIkehata({
-    			mask: this.mask,
-    		});
-    		this.shaders = {'brdf_ikehata': shader };
-    		this.setShader('brdf_ikehata');
     	}
 
     	setLight(light, dt) {
