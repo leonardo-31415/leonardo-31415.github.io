@@ -62,7 +62,7 @@ function main(){
     const urlParams = new URLSearchParams(window.location.search);
     const editorEnable = urlParams.has('editor');
 
-    OpenLIME.Skin.setUrl('skin/skin.svg');
+    OpenLIME.Skin.setUrl('../skin/skin.svg');
 
     let openlime = document.querySelector('.openlime');
     let infoDialog = new OpenLIME.UIDialog(openlime, { modal: true });
@@ -199,7 +199,7 @@ function main(){
     //     editor.updateCallback = (anno) => { console.log("Updated annotation: ", anno); processRequest(anno, 'update'); return true; };
     // }
 
-    let ui = new OpenLIME.UIBasic(lime, { skin: 'skin/skin.svg', showLightDirections: true});
+    let ui = new OpenLIME.UIBasic(lime, { skin: '../skin/skin.svg', showLightDirections: true});
 
     
     const editor = new OpenLIME.AnnotationEditor(lime, layerAnnotation, {
@@ -265,7 +265,7 @@ function main(){
     ui.actions.rotate.display = true;
     // ui.actions.ruler.display = true;
     ui.actions.help.display = true;
-    ui.actions.help.html = '<p>Description:<br>AE4. Aquileia (383-8 CE). RIC IX, p. 104, nº 47. Obv: diademed bust of the emperor r., illegible legend – Rev: Two victories facing each other holding wreaths and palms, illegible legend except in exergue SMAQP</p><p>Notes:<br>Foreseeable improvements in the reading of legends and iconographic types</p>';
+    ui.actions.help.html = '<p>Description:<br>Claudius II. Antoninianus. Siscia (268-70 CE). RIC V.1, p. 227, nº 193. Obv: [IMP CLAV]DIVS AVG. Radiate cuirassed, bearded bust of the emperor, r. – Rev: [VBERITAS AVG]. Uberitas standing l. holding purse and cornucopiae</p><p>Notes:<br>Foreseeable improvements in the reading of legends and iconographic types</p>';
     ui.actions.snapshot.display = true;
     lime.camera.maxFixedZoom = 1;
     window.lime = lime;
