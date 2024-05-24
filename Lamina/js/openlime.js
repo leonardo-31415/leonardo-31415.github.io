@@ -8616,7 +8616,18 @@ void main() {
     				}
     			}
 
-    			else if (this['Smart light']) ;
+    			else if (this['Smart light']) {
+    				let t = Math.asin(z);
+    				let dt = 5 * Math.PI / 180; // 5 gradi in elevazione
+    				let z1 = Math.sin(t - dt);
+    				let r1 = Math.cos(z1);
+    				let a = Math.atan2(y,x);
+    				let x1 = Math.cos(a) * r1;
+    				let y1 = Math.sin(a) * r1;
+    				let base1 = this.lightWeights([x1, y1, z1]);
+    				for (let j = 0; j < base.length; j++)
+    					base[j] = base[j] - base1[j];
+    			}
 
     			this.setUniform('base', base);
     		}
@@ -10327,6 +10338,10 @@ vec4 data() {
     			bias: null,
     			
     			numLights: 1,
+				unsharp_factor: 1,
+				unsharp_radius: 3,
+				unsharp_sigma: 0.5,
+				sigmoid: 1,
     		});
     		Object.assign(this, options);
 
@@ -10364,6 +10379,33 @@ vec4 data() {
     		this.setUniform('light', light);
     	}
 
+		unsharpMasking(gl2, radius, factor, sigma) {
+			let str = `
+float gaussian_2D(float x, float y, float s){
+	float PI = 3.141529;
+	return exp(-(x*x+y*y)/(2.0*s*s)) / (2.0*PI*s*s);
+}
+vec4 unsharp_masking(sampler2D tex){
+				
+	float dx = 1.0/tileSize.x;
+	float dy = 1.0/tileSize.y;
+
+	vec3 tex_color = texture${gl2?'':'2D'}(tex, v_texcoord).rgb;
+	vec3 unsharp_tex = vec3(0);
+
+	for (float i = -${Math.floor(radius/2)}.0; i < ${Math.ceil(radius/2)}.0; i++)
+		for (float j = -${Math.floor(radius/2)}.0; j < ${Math.ceil(radius/2)}.0; j++)
+			unsharp_tex += texture${gl2?'':'2D'}(tex, v_texcoord + vec2(i*dx,j*dy)).rgb * gaussian_2D(i,j,${sigma});
+
+	// return vec4(unsharp_tex,1.0);
+	return vec4(tex_color + (tex_color - unsharp_tex) * ${factor}.0, 1.0);
+	// return vec4((tex_color - unsharp_tex) * ${factor}.0, 1.0);
+}
+`;
+
+	return str;
+		}
+
     	fragShaderSrc(gl) {
             let gl2 = !(gl instanceof WebGLRenderingContext);
 
@@ -10383,8 +10425,11 @@ vec4 data() {
 	float M = texture${gl2?'':'2D'}(metallic, v_texcoord)[0];
 	float R = texture${gl2?'':'2D'}(roughness, v_texcoord)[0];
 
+	// N = unsharp_masking(normals).rgb;
+
 	N = N * 2.0 - 1.0;
 	N = normalize(N);
+	// N = sqrt(N*N);
 
 	float EMIT = 4.0;
 	float SPECULAR = 1.0;
@@ -10428,10 +10473,15 @@ vec4 data() {
 	vec3 N = texture${gl2?'':'2D'}(${this.stress_normals?'stress_normals':'normals'}, v_texcoord).rgb;
 	vec3 M = texture${gl2?'':'2D'}(${this.mode}, v_texcoord).rgb;
 	vec3 L = light;
+
+	// N = unsharp_masking(normals).rgb;
+
 	N = N * 2.0 - 1.0;
 	N = normalize(N);
 	M = 1.0 - M;
 	float nl = dot(N, L);
+	// nl = nl * 2.0 - 1.0;
+	// nl = exp(nl/${this.sigmoid}) / (1.0+exp(nl/${this.sigmoid}));
 	return nl * M;
 `;
 
@@ -10447,6 +10497,8 @@ vec4 data() {
     				break;
     		}
 
+			let unsharpMaskingString = this.unsharpMasking(gl2, this.unsharp_radius, this.unsharp_factor, this.unsharp_sigma);
+
             let str = '';
 
             str += `
@@ -10461,6 +10513,8 @@ uniform sampler2D stress_normals;
 uniform vec3 light;
 ${gl2? 'in' : 'varying'} vec2 v_texcoord;
 
+${unsharpMaskingString}
+
 vec3 render(vec3 light, vec2 v_texcoord) {
 ${renderContent}
 }
@@ -10471,7 +10525,7 @@ vec4 data(vec2 v_texcoord) {
 `;
     		if (this['Mirror light'])
     			str += `
-	color = color * 0.5 + render(vec3(-light.x,-light.y,light.z), v_texcoord) * 0.5;		
+	color = color + render(vec3(-light.x,-light.y,light.z), v_texcoord);
 `;
     		else if (this['Azimuth light'])
     			str += `

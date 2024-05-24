@@ -192,7 +192,7 @@ function main(){
         layout: 'tarzoom',
         transform: { x: 0, y: 0, z: 1, a: 0 },
         zindex: 0,
-        label: 'BRDF',
+        label: 'BRDF (normali ikehata)',
         overlay: false,
         section: "Layers",
         shaderOptions: {
@@ -202,6 +202,25 @@ function main(){
     layerNeural.type = 'brdf_ikehata';
     lime.addLayer('layerBRDF', layerBRDF);
     // console.log(layerBRDF);
+
+    const layerBRDF2 = new OpenLIME.Layer({
+        type: 'brdf_ikehata',
+        url: 'data/brdf_ikehata/base.tzi',
+        // mask: 'data/mappe/mask.tzi',
+        // stress: 'data/mappe/stress.tzi',
+        layout: 'tarzoom',
+        transform: { x: 0, y: 0, z: 1, a: 0 },
+        zindex: 0,
+        label: 'BRDF (nostre normali)',
+        overlay: false,
+        section: "Layers",
+        shaderOptions: {
+            mask: 'data/mappe/mask.tzi',
+        }
+    });
+    layerNeural.type = 'brdf_ikehata';
+    lime.addLayer('layerBRDF2', layerBRDF2);
+    // console.log(layerBRDF2);
 
     // const layerPS = new OpenLIME.Layer({
     //     type: 'ps',
@@ -441,6 +460,27 @@ function main(){
     // unsharp filter
     filter = new UnsharpFilter({label: 'Unsharp', uniform: 'unsharp', value: 10.0, min: 0, max: 20, step: 1});
     addFilter(ui, ui.menu.option, filter);
+
+    // ui.menu.option.list.push({ slider: '', value: 3, min: 3, max: 15, step: 2, oninput: (e) => {
+    //     layerBRDF.shader.unsharp_radius = e.target.value;
+    //     layerBRDF.shader.needsUpdate = true;
+    //     layerBRDF.emit('update');
+    // }});
+    // ui.menu.option.list.push({ slider: '', value: 1, min: 1, max: 10, step: 1, oninput: (e) => {
+    //     layerBRDF.shader.unsharp_factor = e.target.value;
+    //     layerBRDF.shader.needsUpdate = true;
+    //     layerBRDF.emit('update');
+    // }});
+    // ui.menu.option.list.push({ slider: '', value: 0.5, min: 0.05, max: 1, step: 0.05, oninput: (e) => {
+    //     layerBRDF.shader.unsharp_sigma = e.target.value;
+    //     layerBRDF.shader.needsUpdate = true;
+    //     layerBRDF.emit('update');
+    // }});
+    // ui.menu.option.list.push({ slider: '', value: 0.5, min: 0.05, max: 1, step: 0.05, oninput: (e) => {
+    //     layerBRDF.shader.sigmoid = e.target.value;
+    //     layerBRDF.shader.needsUpdate = true;
+    //     layerBRDF.emit('update');
+    // }});
     
     ui.menu.layer.list.push({section:"Multi light"});
     addButton(ui, ui.menu.layer, 'Mirror light', 'Mirro light');
