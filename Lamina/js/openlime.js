@@ -8527,7 +8527,7 @@ void main() {
     		super({});
 
     		Object.assign(this, {
-    			modes: ['light', 'stress', 'specular'],
+    			modes: ['color', 'stress color', 'specular'],
     			mode: 'normal',
     			type:        ['ptm', 'hsh',  'sh', 'rbf', 'bln'],
     			colorspaces: ['lrgb', 'rgb', 'mrgb', 'mycc'],
@@ -8553,12 +8553,12 @@ void main() {
     		if(this.relight)
     			this.init(this.relight);
 
-    		this.setMode('light');
+    		this.setMode('color');
     	}
 
     	/*
      * Set current rendering mode
-     * @param {string} mode one of 'light', 'normals', 'diffuse', 'specular'
+     * @param {string} mode one of 'color', 'normals', 'diffuse', 'specular'
      * @param {number} dt in ms, interpolation duration.
      */
     	setMode(mode) {
@@ -8566,7 +8566,7 @@ void main() {
     			throw Error("Unknown mode: " + mode);
     		this.mode = mode;
 
-    		if( mode != 'light') {
+    		if( mode != 'color' && mode != 'stress color') {
     			let base = this.lightWeights([ 0.612,  0.354, 0.707]);
     			let base1 = this.lightWeights([-0.612,  0.354, 0.707]);
     			let base2 = this.lightWeights([     0, -0.707, 0.707]);
@@ -8593,7 +8593,7 @@ void main() {
     		let z = Math.sqrt(Math.max(0, 1 - x*x - y*y));
     		light = [x, y, z];
 
-    		if (this.mode == 'light' || this.mode == 'stress') {
+    		if (this.mode == 'color' || this.mode == 'stress color') {
     			let base = this.lightWeights(light);
 
     			if (this['Mirror light']) {
@@ -8661,7 +8661,7 @@ void main() {
     		for(let i = 0; i < this.njpegs; i++)
     			this.samplers.push({ id:i, name:'plane'+i, type:'vec3' });
 
-    		this.samplers.push({ id:this.samplers.length, name:'stress', type:'vec3' });
+    		this.samplers.push({ id:this.samplers.length, name:'stress_color', type:'vec3' });
 
     		if (this.mask)
     			this.samplers.push({ id:this.samplers.length, name:'mask', type:'vec3'});
@@ -8778,7 +8778,7 @@ uniform sampler2D normals;
 `;
 
     		str += `
-uniform sampler2D stress;
+uniform sampler2D stress_color;
 `;
 
     		if(this.colorspace == 'mycc')
@@ -8801,7 +8801,7 @@ const int ny1 = ${this.yccplanes[1]};
 vec4 data(vec2 v_texcoord) {
 
 `;
-    		if(this.mode == 'light' || this.mode == 'stress') {
+    		if(this.mode == 'color' || this.mode == 'stress color') {
     			str += `
 	vec4 color = render(base, v_texcoord);
 `;
@@ -8940,10 +8940,10 @@ vec4 render(vec3 base[np1], vec2 v_texcoord) {
 	vec4 rgb = vec4(0, 0, 0, 1);`;
 
     		for(let j = 0; j < njpegs; j++) {
-    			if (j == 0 && shder.mode == 'stress')
+    			if (j == 0 && shder.mode == 'stress color')
     				str += `
 	{
-		vec4 c = texture${gl2?'':'2D'}(stress, v_texcoord);				
+		vec4 c = texture${gl2?'':'2D'}(stress_color, v_texcoord);				
 `;
     			else
     				str += `
@@ -9301,7 +9301,7 @@ vec4 render(vec3 base[np1], vec2 v_texcoord) {
     			if (typeof this.shader.stress === 'string')
     				textureUrls.push(this.shader.stress);
     			else
-    				textureUrls.push(this.layout.imageUrl(this.url, 'stress'));	
+    				textureUrls.push(this.layout.imageUrl(this.url, 'stress_color'));	
 
     			if(this.shader.mask) { 
     				let url;
@@ -10318,7 +10318,7 @@ vec4 data() {
     		super({});
 
     		Object.assign(this, {
-    			modes: ['color', 'monochrome', 'cavity', 'curvature', 'normals'],
+    			modes: ['color', 'stress color', 'monochrome', 'cavity', 'curvature'],
     			mode: 'color',
 
     			nplanes: null,	 //number of coefficient planes
@@ -10378,7 +10378,7 @@ vec4 data() {
     		}
 
     		let BRDFIkehata = `
-	vec3 B = texture${gl2?'':'2D'}(${this.stress_color?'stress_color':'base'},v_texcoord).rgb;
+	vec3 B = texture${gl2?'':'2D'}(${this.mode=='stress color'?'stress_color':'base'},v_texcoord).rgb;
 	vec3 N = texture${gl2?'':'2D'}(${this.stress_normals?'stress_normals':'normals'}, v_texcoord).rgb;
 	float M = texture${gl2?'':'2D'}(metallic, v_texcoord)[0];
 	float R = texture${gl2?'':'2D'}(roughness, v_texcoord)[0];
@@ -10430,6 +10430,7 @@ vec4 data() {
 	vec3 L = light;
 	N = N * 2.0 - 1.0;
 	N = normalize(N);
+	M = 1.0 - M;
 	float nl = dot(N, L);
 	return nl * M;
 `;

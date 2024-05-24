@@ -436,15 +436,11 @@ function main(){
 
     let filter;
     // gamma filter
-    filter = new GammaFilter({label: 'Gamma correction', uniform: 'gamma', value: 2.2, min: 0, max: 3, step: 0.1});
+    filter = new GammaFilter({label: 'Gamma', uniform: 'gamma', value: 2.2, min: 0, max: 3, step: 0.1});
     addFilter(ui, ui.menu.option, filter);
     // unsharp filter
-    filter = new UnsharpFilter({label: 'Unsharp masking', uniform: 'unsharp', value: 10.0, min: 0, max: 20, step: 1});
+    filter = new UnsharpFilter({label: 'Unsharp', uniform: 'unsharp', value: 10.0, min: 0, max: 20, step: 1});
     addFilter(ui, ui.menu.option, filter);
-
-    ui.menu.layer.list.push({section:"Stress (BRDF)"});
-    addButton(ui, ui.menu.layer, 'stress_color', 'Color');
-    addButton(ui, ui.menu.layer, 'stress_normals', 'Normals');
     
     ui.menu.layer.list.push({section:"Multi light"});
     addButton(ui, ui.menu.layer, 'Mirror light', 'Mirro light');
