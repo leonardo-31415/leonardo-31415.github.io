@@ -159,8 +159,10 @@
 	bottom: 0px;
 	right: 0px;
 	padding: 5px;
-	background-color: transparent;
+	/* background-color: transparent; */
 	display: flex;
+	background-color: rgba(60,60,60,0.9);
+	border-radius: 4px;
 }
 
 .openlime-toolbar svg:not(:root) {
@@ -363,11 +365,14 @@ g.openlime-expand {
 
 	font-family: "Open Sans", sans-serif;
 	color: #ccc;
-	background-color: rgb(20, 20, 20, 0.8);
+	/* background-color: rgb(20, 20, 20, 0.8); */
 	list-style: none;
 	padding: 0px;
 	margin: 0px;
 	z-index: 1;
+
+	background-color: rgba(60,60,60,1.0);
+	/* border-radius: 4px; */
 }
 
 .openlime-layers-menu>* {

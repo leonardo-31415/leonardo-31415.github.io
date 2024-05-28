@@ -2685,6 +2685,10 @@
 
     	rotateLight(light) {
     		let [x,y] = light;
+			//////// hardcoded rotation ////////
+			x = -x;
+			y = -y;
+			////////////////////////////////////
     		let r = Math.sqrt(x*x + y*y);
     		if(r > 1) {
     			x /= r;
@@ -7831,7 +7835,7 @@ void main() {
     		entry.element.classList.toggle('active', active); */
 
     		this.menu.layer.list.push({ section: "Layers" });
-    		this.menu.option.list.push({ section: "Filters" });
+    		this.menu.option.list.push(/*{ section: "Filters" }*/);
     		this.menu.annotation.list.push({ section: "Annotations" });
 
     		for (let [id, layer] of Object.entries(this.viewer.canvas.layers)) {
@@ -8546,7 +8550,27 @@ void main() {
     			basis: null,       //PCA basis for rbf and bln
     			lweights: null,    //light direction dependent coefficients to be used with coefficient planes
 
+				//////////////////////////////////////////
     			numLights: 1,
+
+				mirror: false,
+				azimuth: false,
+
+				unsharp_factor: '10.0',
+				unsharp_radius: '5.0',
+				unsharp_sigma: '0.5',
+				unsharp_color: false,
+				unsharp_normals: false,
+
+				sigmoid: false,
+				sigmoid_value: '0.3',
+
+				contrast: false,
+				contrast_max: '1.0',
+				contrast_min: '0.0',
+
+				gamma_correction: false,
+				gamma: '2.2',
     		});
     		Object.assign(this, options);
 
@@ -8596,7 +8620,7 @@ void main() {
     		if (this.mode == 'color' || this.mode == 'stress color') {
     			let base = this.lightWeights(light);
 
-    			if (this['Mirror light']) {
+    			if (this['mirror']) {
     				let a = Math.atan2(y,x);
     				let da = 2 * Math.PI / 2;
     				let x1 = Math.cos(a + da);
@@ -8608,25 +8632,12 @@ void main() {
     				}
     			}
 
-    			else if (this['Azimuth light']) {
+    			else if (this['azimuth']) {
     				let base1 = this.lightWeights([0, 0, 1]);
     				for (let j = 0; j < base.length; j++) {
     					base[j] = base[j] + base1[j];
     					base[j] /= 2;
     				}
-    			}
-
-    			else if (this['Smart light']) {
-    				let t = Math.asin(z);
-    				let dt = 5 * Math.PI / 180; // 5 gradi in elevazione
-    				let z1 = Math.sin(t - dt);
-    				let r1 = Math.cos(z1);
-    				let a = Math.atan2(y,x);
-    				let x1 = Math.cos(a) * r1;
-    				let y1 = Math.sin(a) * r1;
-    				let base1 = this.lightWeights([x1, y1, z1]);
-    				for (let j = 0; j < base.length; j++)
-    					base[j] = base[j] - base1[j];
     			}
 
     			this.setUniform('base', base);
@@ -8846,42 +8857,12 @@ vec4 data(vec2 v_texcoord) {
 vec4 diffuse = texture${gl2?'':'2D'}(plane0, v_texcoord);
 float s = dot(light, normal);
 color = vec4(s * diffuse.xyz, 1);
-`;
-    				if (this['Mirror light'])
-    					str += `
-float s1 = dot(vec3(-light.x,-light.y,light.z),normal);
-color = color * 0.5 + vec4(s1 * diffuse.xyz, 1) * 0.5;				
-`;
-    				if (this['Azimuth light'])
-    					str += `
-float s1 = dot(vec3(0,0,1),normal);
-color = color * 0.5 + vec4(s1 * diffuse.xyz, 1) * 0.5;				
 `;	
-    // 				if (this['Smart light'])
-    // 					str += `
-    // float s1 = dot(vec3(0,0,1),normal);
-    // color = color * 0.5 + vec4(s1 * diffuse.xyz, 1) * 0.5;				
-    // `;	
     			}
     			else {
     				str += `
 color = vec4(vec3(dot(light, normal)), 1);
 `;
-    				if (this['Mirror light'])
-    					str += `
-float s1 = dot(vec3(-light.x,-light.y,light.z),normal);
-color = color * 0.5 + vec4(vec3(s1), 1) * 0.5;				
-`;	
-    				if (this['Azimuth light'])
-    					str += `
-float s1 = dot(vec3(0,0,1),normal);
-color = color * 0.5 + vec4(vec3(s1), 1) * 0.5;				
-`;	
-    // 				if (this['Smart light'])
-    // 					str += `
-    // float s1 = dot(vec3(0,0,1),normal);
-    // color = color * 0.5 + vec4(s1 * diffuse.xyz, 1) * 0.5;				
-    // `;	
     			}
     			break;
 
@@ -8891,27 +8872,53 @@ color = color * 0.5 + vec4(vec3(s1), 1) * 0.5;
 	//color = vec4(render(base).xyz*s, 1.0);
 	color = vec4(s, s, s, 1.0);
 `;
-    			if (this['Mirror light'])
-    				str += `
-float s1 = pow(dot(vec3(-light.x,-light.y,light.z), normal), specular_exp);
-color = color * 0.5 + vec4(vec3(s1), 1) * 0.5;				
-`;	
-    			if (this['Azimuth light'])
-    				str += `
-float s1 = pow(dot(vec3(0,0,1), normal), specular_exp);
-color = color * 0.5 + vec4(vec3(s1), 1) * 0.5;				
-`;	
-    // 			if (this['Smart light'])
-    // 				str += `
-    // float s1 = dot(vec3(0,0,1),normal);
-    // color = color * 0.5 + vec4(s1 * diffuse.xyz, 1) * 0.5;				
-    // `;
     			break;
     			}
     		}
 
-    		str += `return color;
-}`;
+    		if (this['mirror'])
+    			str += `
+	vec3 second_light = vec3(-light.xy,light.z);
+	vec3 second_base[np1];
+	second_base[0] = vec3(1);
+	second_base[1] = vec3(second_light.x);
+	second_base[2] = vec3(second_light.y);
+	second_base[3] = vec3(second_light.x * second_light.x);
+	second_base[4] = vec3(second_light.x * second_light.y);
+	second_base[5] = vec3(second_light.y * second_light.y);
+	vec4 second_color = render(second_base, v_texcoord);
+	color = color * 0.5 + second_color * 0.5;
+`;
+    		if (this['azimuth'])
+    			str += `
+	vec3 second_light = vec3(0,0,1);
+	vec3 second_base[np1];
+	second_base[0] = vec3(1);
+	second_base[1] = vec3(second_light.x);
+	second_base[2] = vec3(second_light.y);
+	second_base[3] = vec3(second_light.x * second_light.x);
+	second_base[4] = vec3(second_light.x * second_light.y);
+	second_base[5] = vec3(second_light.y * second_light.y);
+	vec4 second_color = render(second_base, v_texcoord);
+	color = color * 0.5 + second_color * 0.5;		
+`;
+    		if (this['contrast'])
+    			str += `
+	color.rgb = (color.rgb - ${this['contrast_min']}) / (${this['contrast_max']} - ${this['contrast_min']});
+    `;
+			if (this['gamma_correction'])
+				str += `
+	color.rgb = pow(color.rgb,vec3(1.0/${this['gamma']}));
+`;
+
+			if (this['sigmoid'])
+				str += `
+	color.rgb = exp(color.rgb/${this['sigmoid_value']}) / (1.0 + exp(color.rgb/${this['sigmoid_value']}));
+`;
+    		str += `
+	return color;
+}
+`;
     		return str;
     	}
     }
@@ -9372,15 +9379,32 @@ vec4 render(vec3 base[np1], vec2 v_texcoord) {
     		super({});
 
     		Object.assign(this, {
-    			modes: ['light', 'ambient'],
-    			mode: 'light',
+    			modes: ['color', 'ambient'],
+    			mode: 'color',
 
     			nplanes: null,	 //number of coefficient planes
 
     			scale: null,	  //factor and bias are used to dequantize coefficient planes.
     			bias: null,
 
+				//////////////////////////////////////////////////
     			numLights: 1,
+
+				unsharp_factor: '10.0',
+				unsharp_radius: '5.0',
+				unsharp_sigma: '0.5',
+				unsharp_color: false,
+				unsharp_normals: false,
+
+				sigmoid: false,
+				sigmoid_value: '0.3',
+
+				contrast: false,
+				contrast_max: '1.0',
+				contrast_min: '0.0',
+
+				gamma_correction: false,
+				gamma: '2.2',
     		});
     		Object.assign(this, options);
 
@@ -9545,19 +9569,6 @@ vec4 data(vec2 v_texcoord) {
 	color = render(lights, v_texcoord);
 `;
 
-    		if (this['Mirror light'])
-    			str += `
-	color = color * 0.5 + render(vec2(-lights.x,-lights.y), v_texcoord) * 0.5;
-`;
-    		else if (this['Azimuth light'])
-    		str += `
-	color = color * 0.5 + render(vec2(0,0), v_texcoord) * 0.5;
-`;
-    // 		if (this['Smart light'])
-    // 		str += `
-    // 	color = color * 0.5 + render(vec2(-lights.x,-lights.y), v_texcoord);
-    // `;
-
     		if (this.mode == 'ambient')
     			str += `
 	vec4 albedo_pixel = texture(albedo, v_texcoord);
@@ -9565,6 +9576,29 @@ vec4 data(vec2 v_texcoord) {
 
 `;
 
+    		if (this['mirror'])
+    			str += `
+	vec4 color2 = render(vec2(-lights.x,-lights.y), v_texcoord);
+	color = color * 0.5 + color2 * 0.5;
+`;
+    		if (this['azimuth'])
+    			str += `
+	color = color * 0.5 + render(vec2(0,0), v_texcoord) * 0.5;		
+`;
+    		if (this['contrast'])
+    			str += `
+    // color = color * 2.0 - 1.0;
+	color.rgb = (color.rgb - ${this['contrast_min']}) / (${this['contrast_max']} - ${this['contrast_min']});
+    `;
+			if (this['gamma_correction'])
+				str += `
+	color.rgb = pow(color.rgb,vec3(1.0/${this['gamma']}));
+`;
+
+			if (this['sigmoid'])
+				str += `
+	color.rgb = exp(color.rgb/${this['sigmoid_value']}) / (1.0 + exp(color.rgb/${this['sigmoid_value']}));
+`;
     		str += `
 	return color;
 }
@@ -10329,7 +10363,7 @@ vec4 data() {
     		super({});
 
     		Object.assign(this, {
-    			modes: ['color', 'stress color', 'monochrome', 'cavity', 'curvature'],
+    			modes: ['color', 'stress color', 'curvature'],
     			mode: 'color',
 
     			nplanes: null,	 //number of coefficient planes
@@ -10337,11 +10371,25 @@ vec4 data() {
     			scale: null,	  //factor and bias are used to dequantize coefficient planes.
     			bias: null,
     			
+
+				////////////////////////////////////////////////////////
     			numLights: 1,
-				unsharp_factor: 1,
-				unsharp_radius: 3,
-				unsharp_sigma: 0.5,
-				sigmoid: 1,
+
+				unsharp_factor: '10.0',
+				unsharp_radius: '5.0',
+				unsharp_sigma: '0.5',
+				unsharp_color: false,
+				unsharp_normals: false,
+
+				sigmoid: false,
+				sigmoid_value: '0.3',
+
+				contrast: false,
+				contrast_max: '1.0',
+				contrast_min: '0.0',
+
+				gamma_correction: false,
+				gamma: '2.2',
     		});
     		Object.assign(this, options);
 
@@ -10380,6 +10428,9 @@ vec4 data() {
     	}
 
 		unsharpMasking(gl2, radius, factor, sigma) {
+
+			// radius = 
+
 			let str = `
 float gaussian_2D(float x, float y, float s){
 	float PI = 3.141529;
@@ -10395,11 +10446,32 @@ vec4 unsharp_masking(sampler2D tex){
 
 	for (float i = -${Math.floor(radius/2)}.0; i < ${Math.ceil(radius/2)}.0; i++)
 		for (float j = -${Math.floor(radius/2)}.0; j < ${Math.ceil(radius/2)}.0; j++)
-			unsharp_tex += texture${gl2?'':'2D'}(tex, v_texcoord + vec2(i*dx,j*dy)).rgb * gaussian_2D(i,j,${sigma});
+			unsharp_tex += texture${gl2?'':'2D'}(tex, v_texcoord + vec2(i*dx,j*dy)).rgb; // * gaussian_2D(i,j,${sigma});
 
-	// return vec4(unsharp_tex,1.0);
-	return vec4(tex_color + (tex_color - unsharp_tex) * ${factor}.0, 1.0);
-	// return vec4((tex_color - unsharp_tex) * ${factor}.0, 1.0);
+	unsharp_tex /= ${Math.round(radius*radius)}.0;
+	return vec4(tex_color + (tex_color - unsharp_tex) * ${factor}, 1.0);
+}
+
+vec4 unsharp_masking2(sampler2D tex) {
+	mat3 unsharp_M = mat3(1.0/9.0);
+
+	float dx = 1.0/tileSize.x;
+	float dy = 1.0/tileSize.y;
+
+	vec3 tex_color = texture${gl2?'':'2D'}(tex, v_texcoord).rgb;
+	vec3 unsharp_tex = vec3(0);
+
+	unsharp_tex += unsharp_M[0][0] * texture${gl2?'':'2D'}(tex,vec2(v_texcoord.x-dx,v_texcoord.y-dy)).rgb + 
+				unsharp_M[0][1] * texture${gl2?'':'2D'}(tex,vec2(v_texcoord.x-dx,v_texcoord.y)).rgb +
+				unsharp_M[0][2] * texture${gl2?'':'2D'}(tex,vec2(v_texcoord.x-dx,v_texcoord.y+dy)).rgb +
+				unsharp_M[1][0] * texture${gl2?'':'2D'}(tex,vec2(v_texcoord.x,v_texcoord.y-dy)).rgb +
+				unsharp_M[1][1] * tex_color +
+				unsharp_M[1][2] * texture${gl2?'':'2D'}(tex,vec2(v_texcoord.x,v_texcoord.y+dy)).rgb +
+				unsharp_M[2][0] * texture${gl2?'':'2D'}(tex,vec2(v_texcoord.x+dx,v_texcoord.y-dy)).rgb +
+				unsharp_M[2][1] * texture${gl2?'':'2D'}(tex,vec2(v_texcoord.x+dx,v_texcoord.y)).rgb +
+				unsharp_M[2][2] * texture${gl2?'':'2D'}(tex,vec2(v_texcoord.x+dx,v_texcoord.y+dy)).rgb;
+	
+	return vec4(tex_color + (tex_color - unsharp_tex) * ${factor}, 1.0);
 }
 `;
 
@@ -10425,11 +10497,13 @@ vec4 unsharp_masking(sampler2D tex){
 	float M = texture${gl2?'':'2D'}(metallic, v_texcoord)[0];
 	float R = texture${gl2?'':'2D'}(roughness, v_texcoord)[0];
 
-	// N = unsharp_masking(normals).rgb;
+	${this['unsharp_masking'] && this['unsharp_color'] ? 'B = unsharp_masking(base).rgb;' : ''}
+	${this['unsharp_masking'] && this['unsharp_normals'] ? 'N = unsharp_masking(normals).rgb;' : ''}
+
+	// N.xy = 1.0 - N.xy;
 
 	N = N * 2.0 - 1.0;
 	N = normalize(N);
-	// N = sqrt(N*N);
 
 	float EMIT = 4.0;
 	float SPECULAR = 1.0;
@@ -10466,6 +10540,8 @@ vec4 unsharp_masking(sampler2D tex){
 	vec3 fd = FD * B * (1.0 - M) / PI;
 	vec3 fr = Gs * Fs * Ds;
 
+	fr /= 10.0;
+
 	return ${brdfReturnedValue};		
 `;
 
@@ -10474,14 +10550,12 @@ vec4 unsharp_masking(sampler2D tex){
 	vec3 M = texture${gl2?'':'2D'}(${this.mode}, v_texcoord).rgb;
 	vec3 L = light;
 
-	// N = unsharp_masking(normals).rgb;
+	${this['unsharp_masking'] && this['unsharp_normals'] ? 'N = unsharp_masking(normals).rgb;' : ''}
 
 	N = N * 2.0 - 1.0;
 	N = normalize(N);
 	M = 1.0 - M;
 	float nl = dot(N, L);
-	// nl = nl * 2.0 - 1.0;
-	// nl = exp(nl/${this.sigmoid}) / (1.0+exp(nl/${this.sigmoid}));
 	return nl * M;
 `;
 
@@ -10523,18 +10597,29 @@ vec4 data(vec2 v_texcoord) {
 	vec3 color;
 	color = render(light, v_texcoord);
 `;
-    		if (this['Mirror light'])
+    		if (this['mirror'])
     			str += `
-	color = color + render(vec3(-light.x,-light.y,light.z), v_texcoord);
+	vec3 color2 = render(vec3(-light.x,-light.y,light.z), v_texcoord);
+	color = color * 0.5 + color2 * 0.5;
 `;
-    		else if (this['Azimuth light'])
+    		if (this['azimuth'])
     			str += `
-color = color * 0.5 + render(vec3(0,0,1), v_texcoord) * 0.5;		
+	color = color * 0.5 + render(vec3(0,0,1), v_texcoord) * 0.5;		
 `;
-    // 		else if (this['Smart light'])
-    // 			str += `
-    // color = color * 0.5 + brdf_ikehata(n, b, m, r, vec3(-light.x,-light.y,light.z), v_texcoord) * 0.5;		
-    // `;
+    		if (this['contrast'])
+    			str += `
+    // color = color * 2.0 - 1.0;
+	color = (color - ${this['contrast_min']}) / (${this['contrast_max']} - ${this['contrast_min']});
+    `;
+			if (this['gamma_correction'])
+				str += `
+	color = pow(color,vec3(1.0/${this['gamma']}));
+`;
+
+			if (this['sigmoid'])
+				str += `
+	color = exp(color/${this['sigmoid_value']}) / (1.0 + exp(color/${this['sigmoid_value']}));
+`;
     		str += `
 	return vec4(color, 1.0);
 }
