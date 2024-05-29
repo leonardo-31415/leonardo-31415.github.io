@@ -10379,6 +10379,7 @@ vec4 data() {
 				unsharp_factor: '10.0',
 				unsharp_radius: '5.0',
 				unsharp_sigma: '0.5',
+				unsharp_masking: false,
 				unsharp_color: false,
 				unsharp_normals: false,
 

@@ -552,14 +552,14 @@ function main(){
         }}
     ]);
 
-    addButton(ui, ui.menu.option, 'unsharp_masking', 'Unsharp masking', [
-        { button: 'color', list: [], onclick: () => { updateShader(layerBRDF2,'unsharp_color',!layerBRDF2.shader['unsharp_color']); ui.updateMenu(ui.menu.option);}, status: () => layerBRDF2.shader['unsharp_color'] ? 'active' : '',},
-        { button: 'normals', list: [
-            {slider: 'unsharp_factor', value: '5.0', min: '1.0', max: '40.0', step: '0.1', oninput: (e) => { updateShader(layerBRDF2,'unsharp_factor',(parseFloat(e.target.value)).toFixed(2)); }},
-            {slider: 'unsharp_radius', value: '3.0', min: '3.0', max: '11.0', step: '2.0', oninput: (e) => { updateShader(layerBRDF2,'unsharp_radius',(parseFloat(e.target.value)).toFixed(2)); }},
-            // {slider: 'unsharp_sigma', value: '1.0', min: '1.0', max: '3.0', step: '0.05', oninput: (e) => { updateShader(layerBRDF2,'unsharp_sigma',(parseFloat(e.target.value)).toFixed(2)); }},
-        ], onclick: () => { updateShader(layerBRDF2,'unsharp_normals',!layerBRDF2.shader['unsharp_normals']); ui.updateMenu(ui.menu.option);}, status: () => layerBRDF2.shader['unsharp_normals'] ? 'active' : '',}
-    ]);
+    // addButton(ui, ui.menu.option, 'unsharp_masking', 'Unsharp masking', [
+    //     { button: 'color', list: [], onclick: () => { updateShader(layerBRDF2,'unsharp_color',!layerBRDF2.shader['unsharp_color']); ui.updateMenu(ui.menu.option);}, status: () => layerBRDF2.shader['unsharp_color'] ? 'active' : '',},
+    //     { button: 'normals', list: [
+    //         {slider: 'unsharp_factor', value: '5.0', min: '1.0', max: '40.0', step: '0.1', oninput: (e) => { updateShader(layerBRDF2,'unsharp_factor',(parseFloat(e.target.value)).toFixed(2)); }},
+    //         {slider: 'unsharp_radius', value: '3.0', min: '3.0', max: '11.0', step: '2.0', oninput: (e) => { updateShader(layerBRDF2,'unsharp_radius',(parseFloat(e.target.value)).toFixed(2)); }},
+    //         // {slider: 'unsharp_sigma', value: '1.0', min: '1.0', max: '3.0', step: '0.05', oninput: (e) => { updateShader(layerBRDF2,'unsharp_sigma',(parseFloat(e.target.value)).toFixed(2)); }},
+    //     ], onclick: () => { updateShader(layerBRDF2,'unsharp_normals',!layerBRDF2.shader['unsharp_normals']); ui.updateMenu(ui.menu.option);}, status: () => layerBRDF2.shader['unsharp_normals'] ? 'active' : '',}
+    // ]);
 
     addButton(ui, ui.menu.option, 'gamma_correction', 'Gamma correction', [
         { slider: 'gamma', value: '2.2', min: '0.1', max: '5.0', step: '0.1', oninput: (e) => { 
@@ -574,11 +574,23 @@ function main(){
     ]);
 
 
+    for (let layerEntry of ui.menu.layer.list)
+        if (layerEntry.button == layerBRDF2.label)
+            layerEntry.list.push({
+                button: 'unsharp normals', 
+                list: [
+                    {slider: 'unsharp_factor', value: '5.0', min: '1.0', max: '15.0', step: '0.1', oninput: (e) => { updateShader(layerBRDF2,'unsharp_factor',(parseFloat(e.target.value)).toFixed(2)); }},
+                    {slider: 'unsharp_radius', value: '3.0', min: '3.0', max: '11.0', step: '2.0', oninput: (e) => { updateShader(layerBRDF2,'unsharp_radius',(parseFloat(e.target.value)).toFixed(2)); }},
+                    // {slider: 'unsharp_sigma', value: '1.0', min: '1.0', max: '3.0', step: '0.05', oninput: (e) => { updateShader(layerBRDF2,'unsharp_sigma',(parseFloat(e.target.value)).toFixed(2)); }},
+                ],
+                onclick: () => { 
+                    updateShader(layerBRDF2,'unsharp_normals',!layerBRDF2.shader['unsharp_normals']); 
+                    updateShader(layerBRDF2,'unsharp_masking',!layerBRDF2.shader['unsharp_masking']);
+                    ui.updateMenu(ui.menu.layer);
+                },
+                status: () => layerBRDF2.shader['unsharp_normals'] ? 'active' : '',
+            });
 
-    // filter = new ScoreFilter({label: 'Score filter'});
-    // addFilter(ui, ui.menu.option, filter);
-
-    // console.log(layerAnnotation);
 }
 
 function updateAllShaders(attribute, value) {
