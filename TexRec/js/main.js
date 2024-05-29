@@ -579,7 +579,7 @@ function main(){
             layerEntry.list.push({
                 button: 'unsharp normals', 
                 list: [
-                    {slider: 'unsharp_factor', value: '5.0', min: '1.0', max: '15.0', step: '0.1', oninput: (e) => { updateShader(layerBRDF2,'unsharp_factor',(parseFloat(e.target.value)).toFixed(2)); }},
+                    {slider: 'unsharp_factor', value: '1.0', min: '1.0', max: '15.0', step: '0.1', oninput: (e) => { updateShader(layerBRDF2,'unsharp_factor',(parseFloat(e.target.value)).toFixed(2)); }},
                     {slider: 'unsharp_radius', value: '3.0', min: '3.0', max: '11.0', step: '2.0', oninput: (e) => { updateShader(layerBRDF2,'unsharp_radius',(parseFloat(e.target.value)).toFixed(2)); }},
                     // {slider: 'unsharp_sigma', value: '1.0', min: '1.0', max: '3.0', step: '0.05', oninput: (e) => { updateShader(layerBRDF2,'unsharp_sigma',(parseFloat(e.target.value)).toFixed(2)); }},
                 ],
