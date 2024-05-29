@@ -304,7 +304,7 @@ function main(){
     // will be created. Otherwise, an array of strings must be given
 
     // Define annotation parameters
-    let annotationServer = 'https://leonardo-31415.github.io/TexRec/annotations';
+    // let annotationServer = 'https://leonardo-31415.github.io/TexRec/annotations';
 
     let aOptions = {
         label: 'Annotations',
@@ -319,8 +319,8 @@ function main(){
         path:hover { cursor:pointer; stroke:#f00; }
         .selected { stroke-width:3; }
         `,
-        annotations: annotationServer,
-        // annotations: [],
+        // annotations: annotationServer,
+        annotations: [],
         overlay: true,
     }
 
