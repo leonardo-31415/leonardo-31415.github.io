@@ -540,7 +540,7 @@ function main(){
     // }});
     
     ui.menu.option.list.push({section:"Enhancements"});
-    addButton(ui, ui.menu.option, 'mirror', 'Mirror light');
+    addButton(ui, ui.menu.option, 'mirror', 'Opposite light');
     addButton(ui, ui.menu.option, 'azimuth', 'Azimuth light');
 
     addButton(ui, ui.menu.option, 'contrast', 'Contrast enhancement', [
