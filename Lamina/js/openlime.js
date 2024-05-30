@@ -8876,32 +8876,55 @@ color = vec4(vec3(dot(light, normal)), 1);
     			}
     		}
 
-    		if (this['mirror'])
-    			str += `
-	vec3 second_light = vec3(-light.xy,light.z);
-	vec3 second_base[np1];
+			str += `
+	vec3 second_light;
+	vec4 second_color;
+	vec3 second_base[np1];	
+`;
+    		if (this['mirror']) {
+
+				if (this.mode == 'specular')
+					str += `
+	second_light = vec3(-light.xy,light.z);
+	s = pow(dot(second_light, normal), specular_exp);
+	second_color = vec4(s, s, s, 1.0);	
+	color = color * 0.5 + second_color * 0.5;			
+`;
+				else
+    				str += `
+	second_light = vec3(-light.xy,light.z);
 	second_base[0] = vec3(1);
 	second_base[1] = vec3(second_light.x);
 	second_base[2] = vec3(second_light.y);
 	second_base[3] = vec3(second_light.x * second_light.x);
 	second_base[4] = vec3(second_light.x * second_light.y);
 	second_base[5] = vec3(second_light.y * second_light.y);
-	vec4 second_color = render(second_base, v_texcoord);
+	second_color = render(second_base, v_texcoord);
 	color = color * 0.5 + second_color * 0.5;
 `;
-    		if (this['azimuth'])
-    			str += `
-	vec3 second_light = vec3(0,0,1);
-	vec3 second_base[np1];
+		}
+    		if (this['azimuth']) {
+
+				if (this.mode == 'specular')
+					str += `
+	second_light = vec3(0,0,1);
+	s = pow(dot(second_light, normal), specular_exp);
+	second_color = vec4(s, s, s, 1.0);	
+	color = color * 0.5 + second_color * 0.5;			
+`;
+				else
+    				str += `
+	second_light = vec3(0,0,1);
 	second_base[0] = vec3(1);
 	second_base[1] = vec3(second_light.x);
 	second_base[2] = vec3(second_light.y);
 	second_base[3] = vec3(second_light.x * second_light.x);
 	second_base[4] = vec3(second_light.x * second_light.y);
 	second_base[5] = vec3(second_light.y * second_light.y);
-	vec4 second_color = render(second_base, v_texcoord);
+	second_color = render(second_base, v_texcoord);
 	color = color * 0.5 + second_color * 0.5;		
 `;
+			}
     		if (this['contrast'])
     			str += `
 	color.rgb = (color.rgb - ${this['contrast_min']}) / (${this['contrast_max']} - ${this['contrast_min']});
