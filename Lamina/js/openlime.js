@@ -7788,7 +7788,7 @@ void main() {
     				home: { title: 'Home', display: true, key: 'Home', task: (event) => { if (camera.boundingBox) camera.fitCameraBox(250); } },
     				fullscreen: { title: 'Fullscreen', display: true, key: 'f', task: (event) => { this.toggleFullscreen(); } },
     				layers: { title: 'Layers', display: true, key: 'Escape', task: (event) => { this.toggleMenu(this.menu.layer); } },
-    				options: { title: 'Options', display: true, key: 'o', task: (event) => { this.toggleMenu(this.menu.option); } },
+    				// options: { title: 'Options', display: true, key: 'o', task: (event) => { this.toggleMenu(this.menu.option); } },
     				annotations: { title: 'Annotations', display: true, key: 'a', task: (event) => { this.toggleMenu(this.menu.annotation); } },
     				zoomin: { title: 'Zoom in', display: false, key: '+', task: (event) => { camera.deltaZoom(250, 1.25, 0, 0); } },
     				zoomout: { title: 'Zoom out', display: false, key: '-', task: (event) => { camera.deltaZoom(250, 1 / 1.25, 0, 0); } },

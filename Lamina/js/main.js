@@ -539,11 +539,11 @@ function main(){
     //     layerBRDF.emit('update');
     // }});
     
-    ui.menu.option.list.push({section:"Enhancements"});
-    addButton(ui, ui.menu.option, 'mirror', 'Opposite light');
-    addButton(ui, ui.menu.option, 'azimuth', 'Azimuth light');
+    ui.menu.layer.list.push({section:"Enhancements"});
+    addButton(ui, ui.menu.layer, 'mirror', 'Opposite light');
+    addButton(ui, ui.menu.layer, 'azimuth', 'Azimuth light');
 
-    addButton(ui, ui.menu.option, 'contrast', 'Contrast enhancement', [
+    addButton(ui, ui.menu.layer, 'contrast', 'Contrast enhancement', [
         { slider: 'contrast_max', value: '1.0', min: '0.0', max: '1.0', step: '0.01', oninput: (e) => { 
             updateAllShaders('contrast_max',(parseFloat(e.target.value)).toFixed(2)); 
         }},
@@ -561,13 +561,13 @@ function main(){
     //     ], onclick: () => { updateShader(layerBRDF2,'unsharp_normals',!layerBRDF2.shader['unsharp_normals']); ui.updateMenu(ui.menu.option);}, status: () => layerBRDF2.shader['unsharp_normals'] ? 'active' : '',}
     // ]);
 
-    addButton(ui, ui.menu.option, 'gamma_correction', 'Gamma correction', [
+    addButton(ui, ui.menu.layer, 'gamma_correction', 'Gamma correction', [
         { slider: 'gamma', value: '2.2', min: '0.1', max: '5.0', step: '0.1', oninput: (e) => { 
             updateAllShaders('gamma',(parseFloat(e.target.value)).toFixed(2)); 
         }},
     ]);
 
-    addButton(ui, ui.menu.option, 'sigmoid', 'Sigmoid rescale', [
+    addButton(ui, ui.menu.layer, 'sigmoid', 'Sigmoid rescale', [
         { slider: 'sigmoid_value', value: '0.3', min: '0.05', max: '1.0', step: '0.05', oninput: (e) => { 
             updateAllShaders('sigmoid_value',(parseFloat(e.target.value)).toFixed(2)); 
         }},
