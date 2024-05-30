@@ -567,11 +567,11 @@ function main(){
         }},
     ]);
 
-    addButton(ui, ui.menu.layer, 'sigmoid', 'Sigmoid rescale', [
-        { slider: 'sigmoid_value', value: '0.3', min: '0.05', max: '1.0', step: '0.05', oninput: (e) => { 
-            updateAllShaders('sigmoid_value',(parseFloat(e.target.value)).toFixed(2)); 
-        }},
-    ]);
+    // addButton(ui, ui.menu.layer, 'sigmoid', 'Sigmoid rescale', [
+    //     { slider: 'sigmoid_value', value: '0.3', min: '0.05', max: '1.0', step: '0.05', oninput: (e) => { 
+    //         updateAllShaders('sigmoid_value',(parseFloat(e.target.value)).toFixed(2)); 
+    //     }},
+    // ]);
 
 
     for (let layerEntry of ui.menu.layer.list)
