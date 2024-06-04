@@ -575,7 +575,7 @@ function main(){
 
 
     for (let layerEntry of ui.menu.layer.list)
-        if (layerEntry.button == layerBRDF2.label)
+        if (layerEntry.button == layerBRDF2.label) {
             layerEntry.list.push({
                 button: 'unsharp normals', 
                 list: [
@@ -591,6 +591,12 @@ function main(){
                 status: () => layerBRDF2.shader['unsharp_normals'] ? 'active' : '',
             });
 
+            layerEntry.list.push({
+                slider: 'specular_factor', value: '1.0', min: '0.0', max: '1.0', step: '0.05', oninput: (e) => { 
+                    updateShader(layerBRDF2,'specular_factor',(parseFloat(e.target.value)).toFixed(2)); 
+                }
+            });
+        }
 }
 
 function updateAllShaders(attribute, value) {

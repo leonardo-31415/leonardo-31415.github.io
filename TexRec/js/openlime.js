@@ -10399,8 +10399,8 @@ vec4 data() {
 				////////////////////////////////////////////////////////
     			numLights: 1,
 
-				unsharp_factor: '10.0',
-				unsharp_radius: '5.0',
+				unsharp_factor: '1.0',
+				unsharp_radius: '3.0',
 				unsharp_sigma: '0.5',
 				unsharp_masking: false,
 				unsharp_color: false,
@@ -10415,6 +10415,8 @@ vec4 data() {
 
 				gamma_correction: false,
 				gamma: '2.2',
+
+				specular_factor: '1.0',
     		});
     		Object.assign(this, options);
 
@@ -10566,7 +10568,7 @@ vec4 unsharp_masking2(sampler2D tex) {
 	vec3 fd = FD * B * (1.0 - M) / PI;
 	vec3 fr = Gs * Fs * Ds;
 
-	fr /= 10.0;
+	fr *= ${this.specular_factor};
 
 	return ${brdfReturnedValue};		
 `;
