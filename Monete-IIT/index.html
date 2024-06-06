@@ -23,14 +23,14 @@
     <!-- lista monete: ['20.S239-2.2497', '570103.3', '579666', '579679', '582404', '582410', '587194', '587202'] -->
     <select name="coins" id="coin-select">
         <option value="">--Please choose an option--</option>
-        <option value="20.S239-2.2497">20.S239-2.2497</option>
+        <!-- <option value="20.S239-2.2497">20.S239-2.2497</option> -->
         <option value="570103.3">570103.3</option>
         <option value="579666">579666</option>
         <option value="579679">579679</option>
-        <option value="582404">582404</option>
-        <option value="582410">582410</option>
+        <!-- <option value="582404">582404</option> -->
+        <!-- <option value="582410">582410</option> -->
         <option value="587194">587194</option>
-        <option value="587202">587202</option>
+        <!-- <option value="587202">587202</option> -->
     </select>
 
 </body>
@@ -40,7 +40,8 @@
     coinSelect.addEventListener('change', (e) => {
         if (e.target.value != '') {
             let a = document.createElement('a');
-            a.setAttribute('href', `https://leonardo-31415.github.io/Monete-IIT/${e.target.value}/`);
+            // a.setAttribute('href', `https://leonardo-31415.github.io/Monete-IIT/${e.target.value}/`);
+            a.setAttribute('href', `http://127.0.0.1:5500/Monete-IIT/${e.target.value}/`);
             a.setAttribute('target', '_blank');
             a.style.display = 'none';
             document.body.appendChild(a);

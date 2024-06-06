@@ -243,13 +243,13 @@ function main(){
 
     // const layerBRDF = new OpenLIME.Layer({
     //     type: 'brdf_ikehata',
-    //     url: 'data/brdf/base.tzi',
+    //     url: 'data/brdf2/base.tzi',
     //     // mask: 'data/mappe/mask.tzi',
     //     // stress: 'data/mappe/stress.tzi',
     //     layout: 'tarzoom',
     //     transform: { x: 0, y: 0, z: 1, a: 0 },
     //     zindex: 0,
-    //     label: 'BRDF (normali ikehata)',
+    //     label: 'BRDF 2',
     //     overlay: false,
     //     section: "Layers",
     //     shaderOptions: {
@@ -260,7 +260,7 @@ function main(){
     // lime.addLayer('layerBRDF', layerBRDF);
     // console.log(layerBRDF);
 
-    const layerBRDF2 = new OpenLIME.Layer({
+    const layerBRDF = new OpenLIME.Layer({
         type: 'brdf_ikehata',
         url: 'data/brdf/base.tzi',
         // mask: 'data/mappe/mask.tzi',
@@ -276,8 +276,8 @@ function main(){
         }
     });
     layerNeural.type = 'brdf_ikehata';
-    lime.addLayer('layerBRDF2', layerBRDF2);
-    // console.log(layerBRDF2);
+    lime.addLayer('layerBRDF', layerBRDF);
+    // console.log(layerBRDF);
 
     // const layerPS = new OpenLIME.Layer({
     //     type: 'ps',
@@ -553,12 +553,12 @@ function main(){
     ]);
 
     // addButton(ui, ui.menu.option, 'unsharp_masking', 'Unsharp masking', [
-    //     { button: 'color', list: [], onclick: () => { updateShader(layerBRDF2,'unsharp_color',!layerBRDF2.shader['unsharp_color']); ui.updateMenu(ui.menu.option);}, status: () => layerBRDF2.shader['unsharp_color'] ? 'active' : '',},
+    //     { button: 'color', list: [], onclick: () => { updateShader(layerBRDF,'unsharp_color',!layerBRDF.shader['unsharp_color']); ui.updateMenu(ui.menu.option);}, status: () => layerBRDF.shader['unsharp_color'] ? 'active' : '',},
     //     { button: 'normals', list: [
-    //         {slider: 'unsharp_factor', value: '5.0', min: '1.0', max: '40.0', step: '0.1', oninput: (e) => { updateShader(layerBRDF2,'unsharp_factor',(parseFloat(e.target.value)).toFixed(2)); }},
-    //         {slider: 'unsharp_radius', value: '3.0', min: '3.0', max: '11.0', step: '2.0', oninput: (e) => { updateShader(layerBRDF2,'unsharp_radius',(parseFloat(e.target.value)).toFixed(2)); }},
-    //         // {slider: 'unsharp_sigma', value: '1.0', min: '1.0', max: '3.0', step: '0.05', oninput: (e) => { updateShader(layerBRDF2,'unsharp_sigma',(parseFloat(e.target.value)).toFixed(2)); }},
-    //     ], onclick: () => { updateShader(layerBRDF2,'unsharp_normals',!layerBRDF2.shader['unsharp_normals']); ui.updateMenu(ui.menu.option);}, status: () => layerBRDF2.shader['unsharp_normals'] ? 'active' : '',}
+    //         {slider: 'unsharp_factor', value: '5.0', min: '1.0', max: '40.0', step: '0.1', oninput: (e) => { updateShader(layerBRDF,'unsharp_factor',(parseFloat(e.target.value)).toFixed(2)); }},
+    //         {slider: 'unsharp_radius', value: '3.0', min: '3.0', max: '11.0', step: '2.0', oninput: (e) => { updateShader(layerBRDF,'unsharp_radius',(parseFloat(e.target.value)).toFixed(2)); }},
+    //         // {slider: 'unsharp_sigma', value: '1.0', min: '1.0', max: '3.0', step: '0.05', oninput: (e) => { updateShader(layerBRDF,'unsharp_sigma',(parseFloat(e.target.value)).toFixed(2)); }},
+    //     ], onclick: () => { updateShader(layerBRDF,'unsharp_normals',!layerBRDF.shader['unsharp_normals']); ui.updateMenu(ui.menu.option);}, status: () => layerBRDF.shader['unsharp_normals'] ? 'active' : '',}
     // ]);
 
     addButton(ui, ui.menu.layer, 'gamma_correction', 'Gamma correction', [
@@ -575,25 +575,25 @@ function main(){
 
 
     for (let layerEntry of ui.menu.layer.list)
-        if (layerEntry.button == layerBRDF2.label) {
+        if (layerEntry.button == layerBRDF.label) {
             layerEntry.list.push({
                 button: 'unsharp normals', 
                 list: [
-                    {slider: 'unsharp_factor', value: '1.0', min: '1.0', max: '15.0', step: '0.1', oninput: (e) => { updateShader(layerBRDF2,'unsharp_factor',(parseFloat(e.target.value)).toFixed(2)); }},
-                    {slider: 'unsharp_radius', value: '3.0', min: '3.0', max: '11.0', step: '2.0', oninput: (e) => { updateShader(layerBRDF2,'unsharp_radius',(parseFloat(e.target.value)).toFixed(2)); }},
-                    // {slider: 'unsharp_sigma', value: '1.0', min: '1.0', max: '3.0', step: '0.05', oninput: (e) => { updateShader(layerBRDF2,'unsharp_sigma',(parseFloat(e.target.value)).toFixed(2)); }},
+                    {slider: 'unsharp_factor', value: '1.0', min: '1.0', max: '15.0', step: '0.1', oninput: (e) => { updateShader(layerBRDF,'unsharp_factor',(parseFloat(e.target.value)).toFixed(2)); }},
+                    {slider: 'unsharp_radius', value: '3.0', min: '3.0', max: '11.0', step: '2.0', oninput: (e) => { updateShader(layerBRDF,'unsharp_radius',(parseFloat(e.target.value)).toFixed(2)); }},
+                    // {slider: 'unsharp_sigma', value: '1.0', min: '1.0', max: '3.0', step: '0.05', oninput: (e) => { updateShader(layerBRDF,'unsharp_sigma',(parseFloat(e.target.value)).toFixed(2)); }},
                 ],
                 onclick: () => { 
-                    updateShader(layerBRDF2,'unsharp_normals',!layerBRDF2.shader['unsharp_normals']); 
-                    updateShader(layerBRDF2,'unsharp_masking',!layerBRDF2.shader['unsharp_masking']);
+                    updateShader(layerBRDF,'unsharp_normals',!layerBRDF.shader['unsharp_normals']); 
+                    updateShader(layerBRDF,'unsharp_masking',!layerBRDF.shader['unsharp_masking']);
                     ui.updateMenu(ui.menu.layer);
                 },
-                status: () => layerBRDF2.shader['unsharp_normals'] ? 'active' : '',
+                status: () => layerBRDF.shader['unsharp_normals'] ? 'active' : '',
             });
 
             layerEntry.list.push({
                 slider: 'specular_factor', value: '1.0', min: '0.0', max: '1.0', step: '0.05', oninput: (e) => { 
-                    updateShader(layerBRDF2,'specular_factor',(parseFloat(e.target.value)).toFixed(2)); 
+                    updateShader(layerBRDF,'specular_factor',(parseFloat(e.target.value)).toFixed(2)); 
                 }
             });
         }
