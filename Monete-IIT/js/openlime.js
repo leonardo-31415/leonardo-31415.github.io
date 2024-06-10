@@ -10382,7 +10382,7 @@ vec4 data() {
     		super({});
 
     		Object.assign(this, {
-    			modes: ['color', 'stress color', 'curvature'],
+    			modes: ['color', 'stress color', 'monochrome', 'curvature'],
     			mode: 'color',
 
     			nplanes: null,	 //number of coefficient planes

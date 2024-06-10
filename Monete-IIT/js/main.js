@@ -222,24 +222,24 @@ function main(){
     lime.addLayer('layerPTM', layerPTM);
     console.log(layerPTM);
 
-    // const layerNeural = new OpenLIME.Layer({
-    //     type: 'neural',
-    //     url: 'data/neural/info.json',
-    //     layout: 'tarzoom',
-    //     transform: { x: 0, y: 0, z: 1, a: 0 },
-    //     zindex: 0,
-    //     label: 'NeuralRTI',
-    //     overlay: false,
-    //     section: "Layers",
-    //     shaderOptions: {
-    //         albedo: 'data/mappe/albedo.tzi',
-    //         normals: false,
-    //         mask: 'data/mappe/mask.tzi',
-    //     }
-    // });
-    // layerNeural.type = 'neural';
-    // lime.addLayer('layerNeural', layerNeural);
-    // console.log(layerNeural);
+    const layerNeural = new OpenLIME.Layer({
+        type: 'neural',
+        url: 'data/neural/info.json',
+        layout: 'tarzoom',
+        transform: { x: 0, y: 0, z: 1, a: 0 },
+        zindex: 0,
+        label: 'NeuralRTI',
+        overlay: false,
+        section: "Layers",
+        shaderOptions: {
+            albedo: 'data/mappe/albedo.tzi',
+            normals: false,
+            // mask: 'data/mappe/mask.tzi',
+        }
+    });
+    layerNeural.type = 'neural';
+    lime.addLayer('layerNeural', layerNeural);
+    console.log(layerNeural);
 
     const layer_BRDF_Ikehata = new OpenLIME.Layer({
         type: 'brdf_ikehata',
@@ -249,7 +249,7 @@ function main(){
         layout: 'tarzoom',
         transform: { x: 0, y: 0, z: 1, a: 0 },
         zindex: 0,
-        label: 'BRDF (normali ikehata)',
+        label: 'BRDF (ikehata)',
         overlay: false,
         section: "Layers",
         shaderOptions: {
@@ -268,7 +268,7 @@ function main(){
         layout: 'tarzoom',
         transform: { x: 0, y: 0, z: 1, a: 0 },
         zindex: 0,
-        label: 'BRDF',
+        label: 'BRDF (ps)',
         overlay: false,
         section: "Layers",
         shaderOptions: {
