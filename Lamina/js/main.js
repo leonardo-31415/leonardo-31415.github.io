@@ -241,24 +241,24 @@ function main(){
     lime.addLayer('layerNeural', layerNeural);
     // console.log(layerNeural);
 
-    // const layerBRDF = new OpenLIME.Layer({
+    // const layerBRDFIkehata = new OpenLIME.Layer({
     //     type: 'brdf_ikehata',
-    //     url: 'data/brdf2/base.tzi',
+    //     url: 'data/brdf_ikehata/base.tzi',
     //     // mask: 'data/mappe/mask.tzi',
     //     // stress: 'data/mappe/stress.tzi',
     //     layout: 'tarzoom',
     //     transform: { x: 0, y: 0, z: 1, a: 0 },
     //     zindex: 0,
-    //     label: 'BRDF 2',
+    //     label: 'BRDF (ikehata)',
     //     overlay: false,
     //     section: "Layers",
     //     shaderOptions: {
     //         mask: 'data/mappe/mask.tzi',
     //     }
     // });
-    // layerNeural.type = 'brdf_ikehata';
-    // lime.addLayer('layerBRDF', layerBRDF);
-    // console.log(layerBRDF);
+    // layerBRDFIkehata.type = 'brdf_ikehata';
+    // lime.addLayer('layerBRDFIkehata', layerBRDFIkehata);
+    // console.log(layerBRDFIkehata);
 
     const layerBRDF = new OpenLIME.Layer({
         type: 'brdf_ikehata',
@@ -275,7 +275,7 @@ function main(){
             mask: 'data/mappe/mask.tzi',
         }
     });
-    layerNeural.type = 'brdf_ikehata';
+    layerBRDF.type = 'brdf_ikehata';
     lime.addLayer('layerBRDF', layerBRDF);
     // console.log(layerBRDF);
 
@@ -319,8 +319,8 @@ function main(){
         path:hover { cursor:pointer; stroke:#f00; }
         .selected { stroke-width:3; }
         `,
-        // annotations: annotationServer,
-        annotations: [],
+        annotations: 'https://leonardo-31415.github.io/Lamina/annotations:3000/ol',
+        // annotations: [],
         overlay: true,
     }
 

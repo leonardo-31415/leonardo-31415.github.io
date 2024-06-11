@@ -1,14 +1,19 @@
-# PHP Server
+# Express Server
 
-This directory contains a php server for handling CRUD operations on a mySQL database (crud.php) or on files (json.php).
+This directory contains a NodeJS Express server for handling CRUD operations on a mysql database.
+Before using npm, you need to install the required packages locally:
+```
+npm install
+```
 
-One way to run the server from the command line is to use php:
+To run the server run the following command:
 ```
-php -S 127.0.0.1:8080
+npm run server
 ```
-In the example the server is then accessible from http://127.0.0.1:8080/crud.php or http://127.0.0.1:8080/json.php
+In the example the server is then accessible from http://localhost:3000/ol
 
 ## DB Mysql
+If not already done, to initialize mySQL the first time you have to follow these steps (on os linux):
 If not already done, to initialize mySQL the first time you have to follow these steps (on os linux):
 1. `sudo systemctl start mysqld`
 2. `sudo mysql_secure_installation`

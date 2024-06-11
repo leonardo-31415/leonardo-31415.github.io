@@ -8975,13 +8975,13 @@ vec4 render(vec3 base[np1], vec2 v_texcoord) {
 
 
     class RGB {
-    	static render(njpegs, gl2, shder) {
+    	static render(njpegs, gl2, shader) {
     		let str = `
 vec4 render(vec3 base[np1], vec2 v_texcoord) {
 	vec4 rgb = vec4(0, 0, 0, 1);`;
 
     		for(let j = 0; j < njpegs; j++) {
-    			if (j == 0 && shder.mode == 'stress color')
+    			if (j == 0 && shader.mode == 'stress color')
     				str += `
 	{
 		vec4 c = texture${gl2?'':'2D'}(stress_color, v_texcoord);				
@@ -10386,7 +10386,7 @@ vec4 data() {
     		super({});
 
     		Object.assign(this, {
-    			modes: ['color', 'stress color', 'curvature'],
+    			modes: ['color', 'stress color', 'monochrome', 'curvature'],
     			mode: 'color',
 
     			nplanes: null,	 //number of coefficient planes
