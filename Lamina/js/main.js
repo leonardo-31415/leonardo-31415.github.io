@@ -304,7 +304,7 @@ function main(){
     // will be created. Otherwise, an array of strings must be given
 
     // Define annotation parameters
-    // let annotationServer = 'https://SERVERNAME';
+    let annotationServer = 'https://cautious-engine-44gwxgjrgwjh7457-8080.app.github.dev/ol';
 
     let aOptions = {
         label: 'Annotations',
@@ -319,7 +319,7 @@ function main(){
         path:hover { cursor:pointer; stroke:#f00; }
         .selected { stroke-width:3; }
         `,
-        annotations: 'https://leonardo-31415.github.io/Lamina/annotations:3000/ol',
+        annotations: annotationServer,
         // annotations: [],
         overlay: true,
     }
