@@ -304,7 +304,7 @@ function main(){
     // will be created. Otherwise, an array of strings must be given
 
     // Define annotation parameters
-    // let annotationServer = 'https://leonardo-31415.github.io/TexRec/annotations';
+    // let annotationServer = './crud.php';
 
     let aOptions = {
         label: 'Annotations',
@@ -357,6 +357,8 @@ function main(){
         let method = "GET";
         let url = `${annotationServer}`;
         let body = "";
+        anno.dataset = 'tessuto';
+        anno.action = action;
         switch (action) {
             case "create":
                 method = "POST";

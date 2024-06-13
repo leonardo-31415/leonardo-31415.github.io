@@ -304,7 +304,7 @@ function main(){
     // will be created. Otherwise, an array of strings must be given
 
     // Define annotation parameters
-    // let annotationServer = 'https://cautious-engine-44gwxgjrgwjh7457-8080.app.github.dev/ol';
+    // let annotationServer = './crud.php';
 
     let aOptions = {
         label: 'Annotations',
@@ -357,6 +357,8 @@ function main(){
         let method = "GET";
         let url = `${annotationServer}`;
         let body = "";
+        anno.dataset = 'lamina';
+        anno.action = action;
         switch (action) {
             case "create":
                 method = "POST";
