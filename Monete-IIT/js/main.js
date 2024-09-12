@@ -17,9 +17,22 @@
 // import { ShaderFilter } from './ShaderFilter.js'
 // import { AnnotationEditor } from './AnnotationEditor.js'
 
+// imports
+import LightSphereController from './lightspherecontroller.js'
+
+function addLightSphereController(){
+
+    // add a button for the sphere light controller
+    let lsc = new LightSphereController('.openlime', { thetaMin: 15 }); // Marlie controller
+    for (let layer of Object.keys(lime.canvas.layers)){
+        lsc.addLayer(lime.canvas.layers[layer]);
+    }
+    return lsc;
+}
+
 // CLASS TO CREATE FILTERS
 
-class GammaFilter extends OpenLIME.ShaderFilter {
+class GammaCorrection extends OpenLIME.ShaderFilter {
     constructor(options) {
         super(options);
         this.uniforms = { 
@@ -36,153 +49,60 @@ class GammaFilter extends OpenLIME.ShaderFilter {
     }
 }
 
-class UnsharpFilter extends OpenLIME.ShaderFilter {
+class UnsharpNormals extends OpenLIME.ShaderFilter {
     constructor(options) {
         super(options);
         this.uniforms = { 
-            unsharp: {type: 'float', needsUpdate: true, size: 1, value: 10.0},
+            k: {type: 'float', needsUpdate: true, size: 1, value: 0.0},
+            ka: {type: 'float', needsUpdate: true, size: 1, value: 0.0},
         };
+    }
+
+    fragDataSrc(gl) {
+        let gl2 = !(gl instanceof WebGLRenderingContext);
+        return `
+        vec4 ${this.functionName()}(vec4 col){
+            vec3 n = texture${gl2?'':'2D'}(normals, v_texcoord).xyz * 2.0 - 1.0;
+            vec3 nb = texture${gl2?'':'2D'}(normals_blur, v_texcoord).xyz * 2.0 - 1.0;
+            vec3 ne = n + k * (n - nb);
+            return vec4((max(dot(ne,light), 0.0) + ka) * col.rgb, col.a);
+        }`;
+    }
+}
+
+class ColorBrightness extends OpenLIME.ShaderFilter {
+    constructor(options) {
+        super(options);
+        this.uniforms = {
+            intensity: {type: 'float', needsUpdate: true, size: 1, value: 0.0},
+        }
     }
 
     fragDataSrc(gl) {
         return `
         vec4 ${this.functionName()}(vec4 col){
-            mat3 unsharp_M = mat3(0.0, 0.2, 0.0, 0.2, 0.2, 0.2, 0.0, 0.2, 0.0);
-            // mat3 unsharp_M = mat3(3, 3, 3, 3, 1, 3, 3, 3, 3) / 25.0;
-
-            // mat3 unsharp_M = mat3(0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0) +
-            //           (mat3(0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0) - 
-            //           mat3(0.0, 1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0, 0.0)/5.0)*unsharp;
-            float dx = 1.0/tileSize.x;
-            float dy = 1.0/tileSize.y;
-
-            vec3 unsharp_col = unsharp_M[0][0]*data(vec2(v_texcoord.x-dx,v_texcoord.y-dy)).rgb + 
-                        unsharp_M[0][1]*data(vec2(v_texcoord.x-dx,v_texcoord.y)).rgb +
-                        unsharp_M[0][2]*data(vec2(v_texcoord.x-dx,v_texcoord.y+dy)).rgb +
-                        unsharp_M[1][0]*data(vec2(v_texcoord.x,v_texcoord.y-dy)).rgb +
-                        unsharp_M[1][1]*col.rgb +
-                        unsharp_M[1][2]*data(vec2(v_texcoord.x,v_texcoord.y+dy)).rgb +
-                        unsharp_M[2][0]*data(vec2(v_texcoord.x+dx,v_texcoord.y-dy)).rgb +
-                        unsharp_M[2][1]*data(vec2(v_texcoord.x+dx,v_texcoord.y)).rgb +
-                        unsharp_M[2][2]*data(vec2(v_texcoord.x+dx,v_texcoord.y+dy)).rgb;
-            // return vec4((col.rgb - blur) * unsharp, 1.0);
-            // return vec4(unsharp_col,1.0);
-            return vec4(col.rgb + (col.rgb - unsharp_col) * unsharp, 1.0);
+            return vec4(col.rgb * intensity, col.a);
         }`;
     }
 }
 
-class ScoreFilter extends OpenLIME.ShaderFilter {
+class ContrastStitching extends OpenLIME.ShaderFilter {
     constructor(options) {
         super(options);
-        this.uniforms = { 
-        };
+        this.uniforms = {
+            left: {type: 'float', needsUpdate: true, size: 1, value: 0.0},
+            right: {type: 'float', needsUpdate: true, size: 1, value: 1.0}
+        }
     }
 
     fragDataSrc(gl) {
         return `
-        vec4 ${this.functionName()}(vec4 pixel_color) {
-
-            float dx = 1.0/tileSize.x;
-            float dy = 1.0/tileSize.y;
-        
-            // vec3 pixel_color = texture${gl?'':'2D'}(tex, v_texcoord).rgb;
-            vec3 pixel_score_max = vec3(0);
-            vec3 pixel_score_min = vec3(0);
-
-            float H = 3.0;
-            float W = H;
-        
-            for (float h = -(H/2.0-0.5); h < +(H/2.0-0.5); h++) {
-                for (float w = -(W/2.0-0.5); w < +(W/2.0-0.5); w++) {
-                    vec3 max_color = vec3(0);
-                    vec3 min_color = vec3(0);
-                    for (float i =  -(H/2.0-0.5); i <  +(H/2.0-0.5); i++) {
-                        for (float j = -(W/2.0-0.5); j < +(W/2.0-0.5); j++) {
-                            vec3 second_pixel_color = data(vec2(v_texcoord.x+dx*(h+i),v_texcoord.y+dy*(w+j))).rgb;
-                            for (int k = 0; k < 3; k++) {
-                                max_color[k] = max(max_color[k],second_pixel_color[k]);
-                                min_color[k] = min(min_color[k],second_pixel_color[k]);
-                            }
-                        }
-                    }
-                    for (int k = 0; k < 3; k++) {
-                        if (pixel_color[k] >= max_color[k])
-                            pixel_score_max[k] += 1.0;
-                        if (pixel_color[k] <= min_color[k])
-                            pixel_score_min[k] += 1.0;
-                    }
-                }
-            }
-
-            pixel_score_max /= (H*W);
-            pixel_score_min /= (H*W);
-            pixel_score_min = 1.0 - pixel_score_min;
-                            
-            // return vec4((pixel_score_max+pixel_score_min)/2.0*pixel_color.rgb, 1.0);
-            return vec4(pixel_score_max, 1.0);
+        vec4 ${this.functionName()}(vec4 col){
+            return vec4((col.rgb - left) / (right - left), col.a);
         }`;
     }
 }
 
-
-
-// CLASS FOR MULTI LIGHT BUTTONS
-
-class MultiLightButton {
-    constructor(options) {
-        this.modes = {
-            'Mirror light': false,
-            'Azimuth light': false,
-            'Smart light': false,
-        };
-        this.viewer = null;
-        this.ui = null;
-        this.buttons = [];
-
-        Object.assign(this, options);
-
-        for (let mode of Object.keys(this.modes)) {
-            this.createButton(mode)
-        }
-    }
-
-    clickAction(mode, active) {
-        for (let layer of Object.values(this.viewer.canvas.layers)){
-        
-            if (!layer.shader)
-                continue;
-            
-            let shader = layer.neuralShader ? layer.neuralShader : layer.shader;
-            shader[mode] = active;
-            shader.needsUpdate = true;
-            if (layer.neuralShader)
-                layer.forceRelight();
-            layer.emit('update');
-        }
-        // this.ui.updateMenu(this.ui.menu.layer); // Update menu (run status() callback)
-    }
-
-    createButton(mode) {
-        let active = this.modes[mode];
-        let button = {
-            button: mode,
-            label: 'light',
-            onclick: () => { 
-                for (let mode of Object.keys(this.modes))
-                    this.clickAction(mode,false);
-                active = !active;
-                this.clickAction(mode, active);
-                this.ui.updateMenu(this.ui.menu.layer); // Update menu (run status() callback)
-            },
-            status: () => {
-                return active ? 'active' : '';
-            }
-        }
-        this.buttons.push(button);
-        this.ui.menu.layer.list.push(button);
-    }
-}
 
 // ---------------------------------------------------------------------------------
 
@@ -196,107 +116,72 @@ function main(){
     const urlParams = new URLSearchParams(window.location.search);
     const editorEnable = urlParams.has('editor');
 
-    OpenLIME.Skin.setUrl('../skin/skin.svg');
+    OpenLIME.Skin.setUrl('skin/skin.svg');
 
     let openlime = document.querySelector('.openlime');
     let infoDialog = new OpenLIME.UIDialog(openlime, { modal: true });
     infoDialog.hide();
 
-    const layerPTM = new OpenLIME.Layer({
+    // const layerPTM = new OpenLIME.Layer({
+    //     type: 'rti',
+    //     url: 'data/lptm/info.json',
+    //     layout: 'tarzoom',
+    //     transform: { x: 0, y: 0, z: 1, a: 0 },
+    //     zindex: 0,
+    //     label: 'PTM',
+    //     overlay: false,
+    //     section: "Layers",
+    //     shaderOptions: {
+    //         normals: true,
+    //         mask: false,
+    //         stress: true,
+    //     }
+    // });
+    // layerPTM.type = 'rti';
+    // lime.addLayer('layerPTM', layerPTM);
+    // console.log(layerPTM);
+
+    const coin = COIN;
+    const side = SIDE == 'front' ? '' : 'B';
+    const wavelegnth = WAVELENGTH;
+    const layerBLN = new OpenLIME.Layer({
         type: 'rti',
-        url: 'data/ptm/info.json',
-        layout: 'tarzoom',
+        url: `data/${coin}${wavelegnth}${side}/info.json`,
+        layout: 'image',
         transform: { x: 0, y: 0, z: 1, a: 0 },
         zindex: 0,
-        label: 'PTM',
+        label: 'RTI',
         overlay: false,
         section: "Layers",
         shaderOptions: {
             albedo: false,
             normals: false,
-            // mask: 'data/mappe/mask.tzi',
-            // stress: 'data/brdf_ps/stress_color.tzi',
+            mask: false,
+            stress: false,
         }
     });
-    layerPTM.type = 'rti';
-    lime.addLayer('layerPTM', layerPTM);
-    console.log(layerPTM);
+    layerBLN.type = 'rti';
+    lime.addLayer('layerBLN', layerBLN);
+    console.log('layer', layerBLN);
 
-    const layerNeural = new OpenLIME.Layer({
-        type: 'neural',
-        url: 'data/neural/info.json',
-        layout: 'tarzoom',
-        transform: { x: 0, y: 0, z: 1, a: 0 },
-        zindex: 0,
-        label: 'NeuralRTI',
-        overlay: false,
-        section: "Layers",
-        shaderOptions: {
-            albedo: 'data/mappe/albedo.tzi',
-            normals: false,
-            // mask: 'data/mappe/mask.tzi',
-        }
-    });
-    layerNeural.type = 'neural';
-    lime.addLayer('layerNeural', layerNeural);
-    console.log(layerNeural);
-
-    const layer_BRDF_Ikehata = new OpenLIME.Layer({
-        type: 'brdf_ikehata',
-        url: 'data/brdf_ikehata/base.tzi',
-        // mask: 'data/mappe/mask.tzi',
-        // stress: 'data/mappe/stress.tzi',
-        layout: 'tarzoom',
-        transform: { x: 0, y: 0, z: 1, a: 0 },
-        zindex: 0,
-        label: 'BRDF (ikehata)',
-        overlay: false,
-        section: "Layers",
-        shaderOptions: {
-            // mask: 'data/mappe/mask.tzi',
-        }
-    });
-    layer_BRDF_Ikehata.type = 'brdf_ikehata';
-    lime.addLayer('layer_BRDF_Ikehata', layer_BRDF_Ikehata);
-    console.log(layer_BRDF_Ikehata);
-
-    const layer_BRDF_PS = new OpenLIME.Layer({
-        type: 'brdf_ikehata',
-        url: 'data/brdf_ps/base.tzi',
-        // mask: 'data/mappe/mask.tzi',
-        // stress: 'data/mappe/stress.tzi',
-        layout: 'tarzoom',
-        transform: { x: 0, y: 0, z: 1, a: 0 },
-        zindex: 0,
-        label: 'BRDF (ps)',
-        overlay: false,
-        section: "Layers",
-        shaderOptions: {
-            // mask: 'data/mappe/mask.tzi',
-        }
-    });
-    layer_BRDF_PS.type = 'brdf_ikehata';
-    lime.addLayer('layer_BRDF_PS', layer_BRDF_PS);
-    // console.log(layer_BRDF_PS);
-
-    // const layerPS = new OpenLIME.Layer({
-    //     type: 'ps',
-    //     url: 'data/mappe/albedo.tzi',
-    //     mask: 'data/mappe/mask.tzi',
+    // const layerBRDF = new OpenLIME.Layer({
+    //     type: 'brdf_ikehata',
+    //     url: 'data/brdf/base.tzi',
     //     layout: 'tarzoom',
     //     transform: { x: 0, y: 0, z: 1, a: 0 },
     //     zindex: 0,
-    //     label: 'Static Map PS',
+    //     label: 'BRDF',
     //     overlay: false,
     //     section: "Layers",
-    //     // shaderOptions: {
-    //     //     albedo: false,
-    //     //     // normals: 'data/normals/normals.tzi',
-    //     //     // mask: 'data/mask/mask.tzi',
-    //     // }
+    //     shaderOptions: {
+    //         mask: false,
+    //         normals: true,
+    //         stress: true,
+    //     }
     // });
-    // layerPS.type = 'ps';
-    // lime.addLayer('layerPS', layerPS);
+    // layerBRDF.type = 'brdf_ikehata';
+    // lime.addLayer('layerBRDF', layerBRDF);
+    // console.log(layerBRDF);
 
 
     // user interface configuration
@@ -304,11 +189,11 @@ function main(){
     // will be created. Otherwise, an array of strings must be given
 
     // Define annotation parameters
-    // let annotationServer = '../crud.php';
+    // let annotationServer = './crud.php';
 
     let aOptions = {
         label: 'Annotations',
-        layout: layerPTM.layout,
+        layout: layerBLN.layout,
         type: 'svg_annotations',
         style: ` 
         .openlime-annotation { pointer-events:stroke; opacity: 0.7; }
@@ -340,7 +225,8 @@ function main(){
     layerAnnotation.type = 'svg_annotations';
     lime.addLayer('layerAnnotation', layerAnnotation);
 
-    let ui = new OpenLIME.UIBasic(lime, { skin: 'skin/skin.svg', showLightDirections: true});
+    let lsc = addLightSphereController();
+    let ui = new OpenLIME.UIBasic(lime, { skin: 'skin/skin.svg', showLightDirections: true, lightSphereController: lsc,});
 
     const editor = new OpenLIME.AnnotationEditor(lime, layerAnnotation, {
         // classes: classParam
@@ -357,7 +243,7 @@ function main(){
         let method = "GET";
         let url = `${annotationServer}`;
         let body = "";
-        // anno.dataset = 'moneta';
+        anno.dataset = 'lamina';
         anno.action = action;
         switch (action) {
             case "create":
@@ -439,46 +325,44 @@ function main(){
     Redo: cancel the effect of undo
     Trash: delete the current annotation
     Download: download all current annotations
-    Add: add a new annotation
+    New: add a new annotation
     </p>
     ————————————————————
     
     
     <h3>Layers overlay menu</h3>
     <p>
-    PTM: classic algorithm for RTI, the used one is Polynomial Texture Map (PTM),
-    presents 4 sub-modes
-     - light: rgb rendering of relighted image
-     - normals: normal map calculated from PTM coefficients
-     - diffuse: enhancement of diffuse component of relighted image
-     - specular: artificial enhancement of specular component of relighted image
-       (the whole image is made specular, based on normal map)
-    
-    NeuralRTI: neural based rendering of the relighted image, slower than a classical one,
-    still interactive relighting is available as the image resolution is decreased when the
-    light is moving
-    
-    Static Maps PS: set of images computed using Photometric Stereo
-    - albedo:
-    - cavity
-    - curvature
-    - him
-    - normals
-    - outlim
-    - residual
-    - shim
+    --- Layers section --- <br>
+    There are three different rendering algorithms: <br>
+    - PTM <br>
+    - RBF <br>
+    - BRDF <br>
+    Different algorithms can render differently reflections on the surface. <br>
+    Every algorithm has three options: <br>
+    - color <br>
+    - stress <br>
+    - monochormatic geometry map (specular or monochrome) <br>
+    Color is the rgb rendering. Stress is an enhanced version of the rgb rendering. The third option
+    is a monochromatic rendering of the surface geometry. "Specular" has also a slider to tune the amount
+    of "fake reflection" to show. <br> <br>
+
+    --- Enhancements section --- <br>
+    - Superficie: <br>
+    Esegue l' "unsharp masking" delle normali della superficie. Pensato per migliorare la visualizzazione della geometria superficiale.
+    Il primo slider controlla l'intensità del fattore di "unsharp" della mappa di normali. Il secondo slider è una costanta che serve ad attenuare
+    artefatti visivi che possono crearsi, risutando in un incremento della luminosità. <br>
+    - Luminosità: <br>
+    Moltiplica il colore per un fattore, simulando un aumento di luminosità. <br>
+    - Contrasto: <br>
+    Usa due valori (slider) per riscalare il colore renderizzato in un certo range, seguendo la formula c_out = (c_in - left) / (right - left)
+    dove c_out è il colore in output, c_in il colore in input, left il primo slider, right il secondo slider. <br>
+    - Gamma: <br>
+    Esegue la correzione di gamma dell'intera immagine, seguendo la formula c_out = c_in ^ (1/2.2)
+    dove c_out è il colore in output, c_in il colore in input <br>
     </p>
     ————————————————————
-    
-    <h3>Options overlay menu</h3>
-    <p>
-    Gamma: apply gamma correction to the image, a slider appears to change gamma factor
-    Unsharp: apply unsharp masking to the image, a slider appears to change the unsharp effect
-    Second Light: add a second light superimposed to the first, placed in the opposite direction
-    (currently, works only on layer PTM)
-    </p>
-    ————————————————————
-    
+   
+
     <h3>Annotations overlay menu</h3>
     <p>
     Each time a new annotation is added, a new entry is created. Select the entry to select the
@@ -489,6 +373,7 @@ function main(){
     </p>
     ————————————————————
     
+
     <h3>General info</h3>
     <p>
     The viewer is still in development.
@@ -514,7 +399,7 @@ function main(){
 
     // let filter;
     // // gamma filter
-    // filter = new GammaFilter({label: 'Gamma', uniform: 'gamma', value: 2.2, min: 0, max: 3, step: 0.1});
+    // filter = new GammaCorrection({label: 'Gamma', uniform: 'gamma', value: 2.2, min: 0, max: 3, step: 0.1});
     // addFilter(ui, ui.menu.option, filter);
     // // unsharp filter
     // filter = new UnsharpFilter({label: 'Unsharp', uniform: 'unsharp', value: 10.0, min: 0, max: 20, step: 1});
@@ -542,114 +427,34 @@ function main(){
     // }});
     
     ui.menu.layer.list.push({section:"Enhancements"});
-    addButton(ui, ui.menu.layer, 'mirror', 'Opposite light');
-    addButton(ui, ui.menu.layer, 'azimuth', 'Azimuth light');
 
-    addButton(ui, ui.menu.layer, 'contrast', 'Contrast enhancement', [
-        { slider: 'contrast_max', value: '1.0', min: '0.0', max: '1.0', step: '0.01', oninput: (e) => { 
-            updateAllShaders('contrast_max',(parseFloat(e.target.value)).toFixed(2)); 
-        }},
-        { slider: 'contrast_min', value: '0.0', min: '0.0', max: '1.0', step: '0.01', oninput: (e) => { 
-            updateAllShaders('contrast_min',(parseFloat(e.target.value)).toFixed(2)); 
-        }}
-    ]);
+    // NUM
+    let filter_NUM = new UnsharpNormals({label: 'Superficie', parameters: [
+        {label: 'k', value: 1.0, min: 1.0, max: 20.0, step: 1.0},
+        {label: 'ka', value: 0.0, min: 0.0, max: 2.0, step: 0.1},
+    ]});
+    addFilter(ui, ui.menu.layer, filter_NUM);
 
-    // addButton(ui, ui.menu.option, 'unsharp_masking', 'Unsharp masking', [
-    //     { button: 'color', list: [], onclick: () => { updateShader(layer_BRDF_PS,'unsharp_color',!layer_BRDF_PS.shader['unsharp_color']); ui.updateMenu(ui.menu.option);}, status: () => layer_BRDF_PS.shader['unsharp_color'] ? 'active' : '',},
-    //     { button: 'normals', list: [
-    //         {slider: 'unsharp_factor', value: '5.0', min: '1.0', max: '40.0', step: '0.1', oninput: (e) => { updateShader(layer_BRDF_PS,'unsharp_factor',(parseFloat(e.target.value)).toFixed(2)); }},
-    //         {slider: 'unsharp_radius', value: '3.0', min: '3.0', max: '11.0', step: '2.0', oninput: (e) => { updateShader(layer_BRDF_PS,'unsharp_radius',(parseFloat(e.target.value)).toFixed(2)); }},
-    //         // {slider: 'unsharp_sigma', value: '1.0', min: '1.0', max: '3.0', step: '0.05', oninput: (e) => { updateShader(layer_BRDF_PS,'unsharp_sigma',(parseFloat(e.target.value)).toFixed(2)); }},
-    //     ], onclick: () => { updateShader(layer_BRDF_PS,'unsharp_normals',!layer_BRDF_PS.shader['unsharp_normals']); ui.updateMenu(ui.menu.option);}, status: () => layer_BRDF_PS.shader['unsharp_normals'] ? 'active' : '',}
-    // ]);
+    // CB
+    let filter_CB = new ColorBrightness({label: 'Luminosità', parameters: [
+        {label: 'intensity', value: 1.0, min: 1.0, max: 3.0, step: 0.05},
+    ]});
+    addFilter(ui, ui.menu.layer, filter_CB);
 
-    addButton(ui, ui.menu.layer, 'gamma_correction', 'Gamma correction', [
-        { slider: 'gamma', value: '2.2', min: '0.1', max: '5.0', step: '0.1', oninput: (e) => { 
-            updateAllShaders('gamma',(parseFloat(e.target.value)).toFixed(2)); 
-        }},
-    ]);
+    // CT
+    let filter_CT = new ContrastStitching({label: 'Contrasto', parameters: [
+        {label: 'left', value: 0.0, min: 0.0, max: 1.0, step: 0.05},
+        {label: 'right', value: 1.0, min: 0.0, max: 1.0, step: 0.05},
+    ]});
+    addFilter(ui, ui.menu.layer, filter_CT);
 
-    // addButton(ui, ui.menu.layer, 'sigmoid', 'Sigmoid rescale', [
-    //     { slider: 'sigmoid_value', value: '0.3', min: '0.05', max: '1.0', step: '0.05', oninput: (e) => { 
-    //         updateAllShaders('sigmoid_value',(parseFloat(e.target.value)).toFixed(2)); 
-    //     }},
-    // ]);
+    // γ-C
+    let filter_GAMMA = new GammaCorrection({label: 'Gamma', parameters: []});
+    addFilter(ui, ui.menu.layer, filter_GAMMA);
 
-
-    let layers_with_unsharp = [layer_BRDF_Ikehata, layer_BRDF_PS];
-    for (let layerEntry of ui.menu.layer.list)
-        for (let layer of layers_with_unsharp)
-            if (layerEntry.button == layer.label) {
-                layerEntry.list.push({
-                    button: 'unsharp normals', 
-                    list: [
-                        {slider: 'unsharp_factor', value: '1.0', min: '1.0', max: '15.0', step: '0.1', oninput: (e) => { updateShader(layer,'unsharp_factor',(parseFloat(e.target.value)).toFixed(2)); }},
-                        {slider: 'unsharp_radius', value: '3.0', min: '3.0', max: '11.0', step: '2.0', oninput: (e) => { updateShader(layer,'unsharp_radius',(parseFloat(e.target.value)).toFixed(2)); }},
-                        // {slider: 'unsharp_sigma', value: '1.0', min: '1.0', max: '3.0', step: '0.05', oninput: (e) => { updateShader(layer,'unsharp_sigma',(parseFloat(e.target.value)).toFixed(2)); }},
-                    ],
-                    onclick: () => { 
-                        updateShader(layer,'unsharp_normals',!layer.shader['unsharp_normals']); 
-                        updateShader(layer,'unsharp_masking',!layer.shader['unsharp_masking']);
-                        ui.updateMenu(ui.menu.layer);
-                    },
-                    status: () => layer.shader['unsharp_normals'] ? 'active' : '',
-                });
-
-                layerEntry.list.push({
-                    slider: 'specular_factor', value: '1.0', min: '0.0', max: '1.0', step: '0.05', oninput: (e) => { 
-                        updateShader(layer,'specular_factor',(parseFloat(e.target.value)).toFixed(2)); 
-                    }
-                });
-            }
-}
-
-function updateAllShaders(attribute, value) {
-    for (let layer of Object.values(lime.canvas.layers))
-        updateShader(layer, attribute, value);
-}
-
-function updateShader(layer, attribute, value) {
-
-    if (!layer.shader)
-        return;
     
-    let shader = layer.neuralShader ? layer.neuralShader : layer.shader;
-    shader[attribute] = value;
-    shader.needsUpdate = true;
-    if (layer.neuralShader)
-        layer.forceRelight();
-    layer.emit('update');
-
 }
 
-function addButton(ui, menu, attribute, label, list = []){
-    let active = false;
-    const button = {
-        button: label,
-        list: list,
-        onclick: () => { 
-            active = !active;
-            for (let layer of Object.values(lime.canvas.layers)){
-        
-                if (!layer.shader)
-                    continue;
-                
-                let shader = layer.neuralShader ? layer.neuralShader : layer.shader;
-                shader[attribute] = active;
-                shader.needsUpdate = true;
-                if (layer.neuralShader)
-                    layer.forceRelight();
-                layer.emit('update');
-                console.log(layer);
-            }
-            ui.updateMenu(menu); // Update menu (run status() callback)
-        },
-        status: () => {
-            return active ? 'active' : '';
-        }
-    };
-    menu.list.push(button);
-}
 
 /*
 filter = {
@@ -681,8 +486,8 @@ function addFilter(ui, menu, filter){
                             continue;
                         if (layer.type != 'neural') {
                             layer.shader.addFilter(filter);
-                            if (filter.uniform)
-                                layer.shader.setUniform(filter.uniform, filter.value);
+                            for (let uniform of filter.parameters)
+                                layer.shader.setUniform(uniform.label, uniform.value);
                         }
                         else {
                             layer.imageShader.addFilter(filter);
@@ -709,17 +514,17 @@ function addFilter(ui, menu, filter){
     };
     menu.list.push(button);
 
-    if (filter.uniform) {
+    for (let uniform of filter.parameters) {
         const slider = {
-            html: `<input id="${filter.label}Slider" type="range" min="${filter.min}" max="${filter.max}" value=${filter.value} step="${filter.step}">
-                <output id="${filter.label}SliderOutput">${filter.value}</output>`,
+            html: `<input id="${uniform.label}Slider" type="range" min="${uniform.min}" max="${uniform.max}" value=${uniform.value} step="${uniform.step}">
+                <output id="${uniform.label}SliderOutput">${uniform.value}</output>`,
 
             onchange: () => {
-                filter.value = document.querySelector(`#${filter.label}Slider`).value;
-                document.querySelector(`#${filter.label}SliderOutput`).textContent = filter.value;
+                uniform.value = document.querySelector(`#${uniform.label}Slider`).value;
+                document.querySelector(`#${uniform.label}SliderOutput`).textContent = uniform.value;
                 if (filter_active){
                     for (let layer of Object.values(lime.canvas.layers)){
-                        layer.shader.setUniform(filter.uniform, filter.value);
+                        layer.shader.setUniform(uniform.label, uniform.value);
                     }
                 }
             }

@@ -17,6 +17,19 @@
 // import { ShaderFilter } from './ShaderFilter.js'
 // import { AnnotationEditor } from './AnnotationEditor.js'
 
+// imports
+import LightSphereController from './lightspherecontroller.js'
+
+function addLightSphereController(){
+
+    // add a button for the sphere light controller
+    let lsc = new LightSphereController('.openlime', { thetaMin: 15 }); // Marlie controller
+    for (let layer of Object.keys(lime.canvas.layers)){
+        lsc.addLayer(lime.canvas.layers[layer]);
+    }
+    return lsc;
+}
+
 // CLASS TO CREATE FILTERS
 
 class GammaFilter extends OpenLIME.ShaderFilter {
@@ -68,6 +81,61 @@ class UnsharpFilter extends OpenLIME.ShaderFilter {
             // return vec4((col.rgb - blur) * unsharp, 1.0);
             // return vec4(unsharp_col,1.0);
             return vec4(col.rgb + (col.rgb - unsharp_col) * unsharp, 1.0);
+        }`;
+    }
+}
+
+class UnsharpNormals extends OpenLIME.ShaderFilter {
+    constructor(options) {
+        super(options);
+        this.uniforms = { 
+            k: {type: 'float', needsUpdate: true, size: 1, value: 0.0},
+            ka: {type: 'float', needsUpdate: true, size: 1, value: 0.0},
+        };
+    }
+
+    fragDataSrc(gl) {
+        let gl2 = !(gl instanceof WebGLRenderingContext);
+        return `
+        vec4 ${this.functionName()}(vec4 col){
+            vec3 n = texture${gl2?'':'2D'}(normals, v_texcoord).xyz * 2.0 - 1.0;
+            vec3 nb = texture${gl2?'':'2D'}(normals_blur, v_texcoord).xyz * 2.0 - 1.0;
+            vec3 ne = n + k * (n - nb);
+            return vec4((max(dot(ne,light), 0.0) + ka) * col.rgb, col.a);
+        }`;
+    }
+}
+
+class ColorBrightness extends OpenLIME.ShaderFilter {
+    constructor(options) {
+        super(options);
+        this.uniforms = {
+            intensity: {type: 'float', needsUpdate: true, size: 1, value: 0.0},
+        }
+    }
+
+    fragDataSrc(gl) {
+        return `
+        vec4 ${this.functionName()}(vec4 col){
+            return vec4(col.rgb * intensity, col.a);
+        }`;
+    }
+}
+
+class ColorBrightness2 extends OpenLIME.ShaderFilter {
+    constructor(options) {
+        super(options);
+        this.uniforms = {
+            r: {type: 'float', needsUpdate: true, size: 1, value: 0.0},
+            g: {type: 'float', needsUpdate: true, size: 1, value: 0.0},
+            b: {type: 'float', needsUpdate: true, size: 1, value: 0.0},
+        }
+    }
+
+    fragDataSrc(gl) {
+        return `
+        vec4 ${this.functionName()}(vec4 col){
+            return vec4(col.rgb * vec3(r,g,b), col.a);
         }`;
     }
 }
@@ -204,7 +272,7 @@ function main(){
 
     const layerPTM = new OpenLIME.Layer({
         type: 'rti',
-        url: 'data/ptm/info.json',
+        url: 'data/lptm/info.json',
         layout: 'tarzoom',
         transform: { x: 0, y: 0, z: 1, a: 0 },
         zindex: 0,
@@ -213,8 +281,8 @@ function main(){
         section: "Layers",
         shaderOptions: {
             albedo: false,
-            normals: false,
-            mask: 'data/mappe/mask.tzi',
+            normals: true,
+            mask: false,
             // stress: 'data/brdf/stress.tzi',
         }
     });
@@ -222,23 +290,43 @@ function main(){
     lime.addLayer('layerPTM', layerPTM);
     console.log(layerPTM);
 
-    const layerNeural = new OpenLIME.Layer({
-        type: 'neural',
-        url: 'data/neural/info.json',
+    const layerRBF = new OpenLIME.Layer({
+        type: 'rti',
+        url: 'data/rbf/info.json',
         layout: 'tarzoom',
         transform: { x: 0, y: 0, z: 1, a: 0 },
         zindex: 0,
-        label: 'NeuralRTI',
+        label: 'RBF',
         overlay: false,
         section: "Layers",
         shaderOptions: {
-            albedo: 'data/mappe/albedo.tzi',
-            normals: false,
-            mask: 'data/mappe/mask.tzi',
+            albedo: false,
+            normals: true,
+            mask: false,
+            // stress: 'data/brdf/stress.tzi',
         }
     });
-    layerNeural.type = 'neural';
-    lime.addLayer('layerNeural', layerNeural);
+    layerRBF.type = 'rti';
+    lime.addLayer('layerRBF', layerRBF);
+    console.log(layerRBF);
+
+    // const layerNeural = new OpenLIME.Layer({
+    //     type: 'neural',
+    //     url: 'data/neural/info.json',
+    //     layout: 'tarzoom',
+    //     transform: { x: 0, y: 0, z: 1, a: 0 },
+    //     zindex: 0,
+    //     label: 'NeuralRTI',
+    //     overlay: false,
+    //     section: "Layers",
+    //     shaderOptions: {
+    //         albedo: 'data/mappe/albedo.tzi',
+    //         normals: false,
+    //         mask: 'data/mappe/mask.tzi',
+    //     }
+    // });
+    // layerNeural.type = 'neural';
+    // lime.addLayer('layerNeural', layerNeural);
     // console.log(layerNeural);
 
     // const layerBRDFIkehata = new OpenLIME.Layer({
@@ -272,12 +360,13 @@ function main(){
         overlay: false,
         section: "Layers",
         shaderOptions: {
-            mask: 'data/mappe/mask.tzi',
+            // mask: 'data/mappe/mask.tzi',
+            normals: true,
         }
     });
     layerBRDF.type = 'brdf_ikehata';
     lime.addLayer('layerBRDF', layerBRDF);
-    // console.log(layerBRDF);
+    console.log(layerBRDF);
 
     // const layerPS = new OpenLIME.Layer({
     //     type: 'ps',
@@ -308,7 +397,7 @@ function main(){
 
     let aOptions = {
         label: 'Annotations',
-        layout: layerPTM.layout,
+        layout: layerRBF.layout,
         type: 'svg_annotations',
         style: ` 
         .openlime-annotation { pointer-events:stroke; opacity: 0.7; }
@@ -340,7 +429,8 @@ function main(){
     layerAnnotation.type = 'svg_annotations';
     lime.addLayer('layerAnnotation', layerAnnotation);
 
-    let ui = new OpenLIME.UIBasic(lime, { skin: 'skin/skin.svg', showLightDirections: true});
+    let lsc = addLightSphereController();
+    let ui = new OpenLIME.UIBasic(lime, { skin: 'skin/skin.svg', showLightDirections: true, lightSphereController: lsc,});
 
     const editor = new OpenLIME.AnnotationEditor(lime, layerAnnotation, {
         // classes: classParam
@@ -542,17 +632,31 @@ function main(){
     // }});
     
     ui.menu.layer.list.push({section:"Enhancements"});
-    addButton(ui, ui.menu.layer, 'mirror', 'Opposite light');
-    addButton(ui, ui.menu.layer, 'azimuth', 'Azimuth light');
 
-    addButton(ui, ui.menu.layer, 'contrast', 'Contrast enhancement', [
-        { slider: 'contrast_max', value: '1.0', min: '0.0', max: '1.0', step: '0.01', oninput: (e) => { 
-            updateAllShaders('contrast_max',(parseFloat(e.target.value)).toFixed(2)); 
-        }},
-        { slider: 'contrast_min', value: '0.0', min: '0.0', max: '1.0', step: '0.01', oninput: (e) => { 
-            updateAllShaders('contrast_min',(parseFloat(e.target.value)).toFixed(2)); 
-        }}
-    ]);
+    let filter_NUM = new UnsharpNormals({label: 'NUM', parameters: [
+        {label: 'k', value: 1.0, min: 1.0, max: 20.0, step: 1.0},
+        {label: 'ka', value: 0.0, min: 0.0, max: 2.0, step: 0.1},
+    ]});
+    addFilter(ui, ui.menu.layer, filter_NUM);
+
+    let filter_CB = new ColorBrightness({label: 'CB', parameters: [
+        {label: 'intensity', value: 1.0, min: 0.0, max: 2.0, step: 0.05},
+    ]});
+    addFilter(ui, ui.menu.layer, filter_CB);
+
+    let filter_GAMMA = new GammaFilter({label: 'γ-C', parameters: []});
+    addFilter(ui, ui.menu.layer, filter_GAMMA);
+    // addButton(ui, ui.menu.layer, 'mirror', 'Opposite light');
+    // addButton(ui, ui.menu.layer, 'azimuth', 'Azimuth light');
+
+    // addButton(ui, ui.menu.layer, 'contrast', 'Contrast enhancement', [
+    //     { slider: 'contrast_max', value: '1.0', min: '0.0', max: '1.0', step: '0.01', oninput: (e) => { 
+    //         updateAllShaders('contrast_max',(parseFloat(e.target.value)).toFixed(2)); 
+    //     }},
+    //     { slider: 'contrast_min', value: '0.0', min: '0.0', max: '1.0', step: '0.01', oninput: (e) => { 
+    //         updateAllShaders('contrast_min',(parseFloat(e.target.value)).toFixed(2)); 
+    //     }}
+    // ]);
 
     // addButton(ui, ui.menu.option, 'unsharp_masking', 'Unsharp masking', [
     //     { button: 'color', list: [], onclick: () => { updateShader(layerBRDF,'unsharp_color',!layerBRDF.shader['unsharp_color']); ui.updateMenu(ui.menu.option);}, status: () => layerBRDF.shader['unsharp_color'] ? 'active' : '',},
@@ -563,11 +667,11 @@ function main(){
     //     ], onclick: () => { updateShader(layerBRDF,'unsharp_normals',!layerBRDF.shader['unsharp_normals']); ui.updateMenu(ui.menu.option);}, status: () => layerBRDF.shader['unsharp_normals'] ? 'active' : '',}
     // ]);
 
-    addButton(ui, ui.menu.layer, 'gamma_correction', 'Gamma correction', [
-        { slider: 'gamma', value: '2.2', min: '0.1', max: '5.0', step: '0.1', oninput: (e) => { 
-            updateAllShaders('gamma',(parseFloat(e.target.value)).toFixed(2)); 
-        }},
-    ]);
+    // addButton(ui, ui.menu.layer, 'gamma_correction', 'Gamma correction', [
+    //     { slider: 'gamma', value: '2.2', min: '0.1', max: '5.0', step: '0.1', oninput: (e) => { 
+    //         updateAllShaders('gamma',(parseFloat(e.target.value)).toFixed(2)); 
+    //     }},
+    // ]);
 
     // addButton(ui, ui.menu.layer, 'sigmoid', 'Sigmoid rescale', [
     //     { slider: 'sigmoid_value', value: '0.3', min: '0.05', max: '1.0', step: '0.05', oninput: (e) => { 
@@ -575,30 +679,61 @@ function main(){
     //     }},
     // ]);
 
+    // add button to PTM
+    // for (let layerEntry of ui.menu.layer.list)
+    //     if (layerEntry.button == layerPTM.label) {
+    //         layerEntry.list.push({
+    //             button: 'stress color', 
+    //             onclick: () => { 
+    //                 updateShader(layerPTM,'stress_color',!layerPTM.shader['stress_color']);
+    //                 ui.updateMenu(ui.menu.layer);
+    //             },
+    //             status: () => layerPTM.shader['stress_color'] ? 'active' : '',
+    //         });
 
-    for (let layerEntry of ui.menu.layer.list)
-        if (layerEntry.button == layerBRDF.label) {
-            layerEntry.list.push({
-                button: 'unsharp normals', 
-                list: [
-                    {slider: 'unsharp_factor', value: '1.0', min: '1.0', max: '15.0', step: '0.1', oninput: (e) => { updateShader(layerBRDF,'unsharp_factor',(parseFloat(e.target.value)).toFixed(2)); }},
-                    {slider: 'unsharp_radius', value: '3.0', min: '3.0', max: '11.0', step: '2.0', oninput: (e) => { updateShader(layerBRDF,'unsharp_radius',(parseFloat(e.target.value)).toFixed(2)); }},
-                    // {slider: 'unsharp_sigma', value: '1.0', min: '1.0', max: '3.0', step: '0.05', oninput: (e) => { updateShader(layerBRDF,'unsharp_sigma',(parseFloat(e.target.value)).toFixed(2)); }},
-                ],
-                onclick: () => { 
-                    updateShader(layerBRDF,'unsharp_normals',!layerBRDF.shader['unsharp_normals']); 
-                    updateShader(layerBRDF,'unsharp_masking',!layerBRDF.shader['unsharp_masking']);
-                    ui.updateMenu(ui.menu.layer);
-                },
-                status: () => layerBRDF.shader['unsharp_normals'] ? 'active' : '',
-            });
+    //         layerEntry.list.push({
+    //             button: 'stress G1', 
+    //             onclick: () => { 
+    //                 updateShader(layerPTM,'stress_geometry_1',!layerPTM.shader['stress_geometry_1']);
+    //                 ui.updateMenu(ui.menu.layer);
+    //             },
+    //             status: () => layerPTM.shader['stress_geometry_1'] ? 'active' : '',
+    //         });
 
-            layerEntry.list.push({
-                slider: 'specular_factor', value: '1.0', min: '0.0', max: '1.0', step: '0.05', oninput: (e) => { 
-                    updateShader(layerBRDF,'specular_factor',(parseFloat(e.target.value)).toFixed(2)); 
-                }
-            });
-        }
+    //         layerEntry.list.push({
+    //             button: 'stress G2', 
+    //             onclick: () => { 
+    //                 updateShader(layerPTM,'stress_geometry_2',!layerPTM.shader['stress_geometry_2']);
+    //                 ui.updateMenu(ui.menu.layer);
+    //             },
+    //             status: () => layerPTM.shader['stress_geometry_2'] ? 'active' : '',
+    //         });
+    //     }
+
+    // add button to BRDF
+    // for (let layerEntry of ui.menu.layer.list)
+    //     if (layerEntry.button == layerBRDF.label) {
+    //         layerEntry.list.push({
+    //             button: 'unsharp normals', 
+    //             list: [
+    //                 {slider: 'unsharp_factor', value: '1.0', min: '1.0', max: '15.0', step: '0.1', oninput: (e) => { updateShader(layerBRDF,'unsharp_factor',(parseFloat(e.target.value)).toFixed(2)); }},
+    //                 {slider: 'unsharp_radius', value: '3.0', min: '3.0', max: '11.0', step: '2.0', oninput: (e) => { updateShader(layerBRDF,'unsharp_radius',(parseFloat(e.target.value)).toFixed(2)); }},
+    //                 // {slider: 'unsharp_sigma', value: '1.0', min: '1.0', max: '3.0', step: '0.05', oninput: (e) => { updateShader(layerBRDF,'unsharp_sigma',(parseFloat(e.target.value)).toFixed(2)); }},
+    //             ],
+    //             onclick: () => { 
+    //                 updateShader(layerBRDF,'unsharp_normals',!layerBRDF.shader['unsharp_normals']); 
+    //                 updateShader(layerBRDF,'unsharp_masking',!layerBRDF.shader['unsharp_masking']);
+    //                 ui.updateMenu(ui.menu.layer);
+    //             },
+    //             status: () => layerBRDF.shader['unsharp_normals'] ? 'active' : '',
+    //         });
+
+    //         layerEntry.list.push({
+    //             slider: 'specular_factor', value: '1.0', min: '0.0', max: '1.0', step: '0.05', oninput: (e) => { 
+    //                 updateShader(layerBRDF,'specular_factor',(parseFloat(e.target.value)).toFixed(2)); 
+    //             }
+    //         });
+    //     }
 }
 
 function updateAllShaders(attribute, value) {
@@ -679,8 +814,8 @@ function addFilter(ui, menu, filter){
                             continue;
                         if (layer.type != 'neural') {
                             layer.shader.addFilter(filter);
-                            if (filter.uniform)
-                                layer.shader.setUniform(filter.uniform, filter.value);
+                            for (let uniform of filter.parameters)
+                                layer.shader.setUniform(uniform.label, uniform.value);
                         }
                         else {
                             layer.imageShader.addFilter(filter);
@@ -707,17 +842,17 @@ function addFilter(ui, menu, filter){
     };
     menu.list.push(button);
 
-    if (filter.uniform) {
+    for (let uniform of filter.parameters) {
         const slider = {
-            html: `<input id="${filter.label}Slider" type="range" min="${filter.min}" max="${filter.max}" value=${filter.value} step="${filter.step}">
-                <output id="${filter.label}SliderOutput">${filter.value}</output>`,
+            html: `<input id="${uniform.label}Slider" type="range" min="${uniform.min}" max="${uniform.max}" value=${uniform.value} step="${uniform.step}">
+                <output id="${uniform.label}SliderOutput">${uniform.value}</output>`,
 
             onchange: () => {
-                filter.value = document.querySelector(`#${filter.label}Slider`).value;
-                document.querySelector(`#${filter.label}SliderOutput`).textContent = filter.value;
+                uniform.value = document.querySelector(`#${uniform.label}Slider`).value;
+                document.querySelector(`#${uniform.label}SliderOutput`).textContent = uniform.value;
                 if (filter_active){
                     for (let layer of Object.values(lime.canvas.layers)){
-                        layer.shader.setUniform(filter.uniform, filter.value);
+                        layer.shader.setUniform(uniform.label, uniform.value);
                     }
                 }
             }

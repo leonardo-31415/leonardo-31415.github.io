@@ -161,7 +161,7 @@
 	padding: 5px;
 	/* background-color: transparent; */
 	display: flex;
-	background-color: rgba(60,60,60,0.9);
+	background-color: rgba(60,60,60,0.6);
 	border-radius: 4px;
 }
 
@@ -198,7 +198,7 @@
 	top: 0px;
 	right: 0px;
 	padding: 5px;
-	background-color: rgba(60,60,60,0.9);
+	background-color: rgba(60,60,60,0.6);
 	border-radius: 4px;
 	display: flex;
 	/* border: 1px dashed white; */
@@ -371,7 +371,7 @@ g.openlime-expand {
 	margin: 0px;
 	z-index: 1;
 
-	background-color: rgba(60,60,60,1.0);
+	background-color: rgba(60,60,60,0.6);
 	/* border-radius: 4px; */
 }
 

@@ -2685,10 +2685,6 @@
 
     	rotateLight(light) {
     		let [x,y] = light;
-			//////// hardcoded rotation ////////
-			x = -x;
-			y = -y;
-			////////////////////////////////////
     		let r = Math.sqrt(x*x + y*y);
     		if(r > 1) {
     			x /= r;
@@ -7810,6 +7806,7 @@ void main() {
     				option: {list: [], overlay: null},
     				annotation: {list: [], overlay: null},
     			},
+				lightSphereController: null,
     		});
     		
     		Object.assign(this, options);
@@ -7899,11 +7896,22 @@ void main() {
 
     		let controller = new Controller2D(
     			(x, y) => {
+					let r = Math.sqrt(x*x + y*y);
+					if(r > 1) {
+						x /= r;
+						y /= r;
+					}
     				for (let layer of lightLayers)
     					layer.setLight([x, y], 0);
     				if(this.showLightDirections)
     					this.updateLightDirections(x, y);
     				this.emit('lightdirection', [x, y, Math.sqrt(1 - x*x + y*y)]);
+
+					// light sphere controller
+					let x1 = (x + 1.0) / 2.0 * this.lightSphereController.width;
+					let y1 = this.lightSphereController.height - (y + 1.0) / 2.0 * this.lightSphereController.height;
+					// this.lightSphereController.interactLightDir(x1,y1);
+					this.lightSphereController.drawLightSelector(x1,y1);
     			}, { 
     				// TODO: IS THIS OK? It was false before
     				active: false, 
@@ -8531,7 +8539,7 @@ void main() {
     		super({});
 
     		Object.assign(this, {
-    			modes: ['color', 'stress color', 'specular'],
+    			modes: ['color', 'specular', 'normals'],
     			mode: 'normal',
     			type:        ['ptm', 'hsh',  'sh', 'rbf', 'bln'],
     			colorspaces: ['lrgb', 'rgb', 'mrgb', 'mycc'],
@@ -8571,6 +8579,10 @@ void main() {
 
 				gamma_correction: false,
 				gamma: '2.2',
+
+				stress_color: false,
+				stress_geometry_1: false,
+				stress_geometry_2: false,
     		});
     		Object.assign(this, options);
 
@@ -8683,13 +8695,15 @@ void main() {
     		for(let i = 0; i < this.njpegs; i++)
     			this.samplers.push({ id:i, name:'plane'+i, type:'vec3' });
 
-    		this.samplers.push({ id:this.samplers.length, name:'stress_color', type:'vec3' });
+    		// for(let i = 0; i < this.njpegs; i++)
+    		// 	this.samplers.push({ id:i+this.njpegs, name:'plane'+i+'_stress', type:'vec3' });
 
     		if (this.mask)
     			this.samplers.push({ id:this.samplers.length, name:'mask', type:'vec3'});
     		
     		if(this.normals)
     			this.samplers.push({ id:this.samplers.length, name:'normals', type:'vec3' });
+				this.samplers.push({ id:this.samplers.length, name:'normals_blur', type:'vec3' });
 
     		this.material = this.materials[0];
 
@@ -8789,19 +8803,21 @@ uniform ${basetype} base1[np1];
 uniform ${basetype} base2[np1];
 `;
 
+			if (this.normals)
+				str += `
+uniform sampler2D normals;
+uniform sampler2D normals_blur;			
+`;
+
     		for(let n = 0; n < this.njpegs; n++) 
     			str += `
 uniform sampler2D plane${n};
 `;
 
-    		if(this.normals)
-    			str += `
-uniform sampler2D normals;
-`;
-
-    		str += `
-uniform sampler2D stress_color;
-`;
+// 			for(let n = 0; n < this.njpegs; n++) 
+// 	str += `
+// uniform sampler2D plane${n}_stress;
+// `;
 
     		if(this.colorspace == 'mycc')
     			str +=
@@ -8818,6 +8834,8 @@ const int ny1 = ${this.yccplanes[1]};
     			case 'mycc':  str += MYCC.render(this.njpegs, this.yccplanes[0], gl2); break;
     		}
 
+
+
     		str += `
 
 vec4 data(vec2 v_texcoord) {
@@ -8833,8 +8851,9 @@ vec4 data(vec2 v_texcoord) {
 `;
     			if(this.normals)
     				str += `
-	vec3 normal = (texture${gl2?'':'2D'}(normals, v_texcoord).zyx *2.0) - 1.0;
-	normal.z = sqrt(1.0 - normal.x*normal.x - normal.y*normal.y);
+	// vec3 normal = (texture${gl2?'':'2D'}(normals, v_texcoord).zyx *2.0) - 1.0;
+	// normal.z = sqrt(1.0 - normal.x*normal.x - normal.y*normal.y);
+	vec3 normal = texture${gl2?'':'2D'}(normals, v_texcoord).xyz * 2.0 - 1.0;
 `;
     			else
     				str += `
@@ -8847,7 +8866,7 @@ vec4 data(vec2 v_texcoord) {
     			switch(this.mode) {
     			case 'normals':  str += `
 	normal = (normal + 1.0)/2.0;
-	color = vec4(0.0, normal.xy, 1);
+	color = vec4(normal.xyz, 1);
 `;
     			break;
 
@@ -8981,11 +9000,24 @@ vec4 render(vec3 base[np1], vec2 v_texcoord) {
 	vec4 rgb = vec4(0, 0, 0, 1);`;
 
     		for(let j = 0; j < njpegs; j++) {
-    			if (j == 0 && shader.mode == 'stress color')
+    			if (j == 0 && shader.stress_color)
     				str += `
 	{
-		vec4 c = texture${gl2?'':'2D'}(stress_color, v_texcoord);				
+		vec4 c = texture${gl2?'':'2D'}(plane${j}_stress, v_texcoord);				
 `;
+
+				else if ((j == 1 || j == 2) && shader.stress_geometry_1)
+					str += `
+	{
+		vec4 c = texture${gl2?'':'2D'}(plane${j}_stress, v_texcoord);				
+`;
+
+				else if ((j == 3 || j == 4 || j == 5) && shader.stress_geometry_2)
+					str += `
+	{
+		vec4 c = texture${gl2?'':'2D'}(plane${j}_stress, v_texcoord);				
+`;
+
     			else
     				str += `
 	{
@@ -9339,10 +9371,12 @@ vec4 render(vec3 base[np1], vec2 v_texcoord) {
     				this.rasters.push(raster);
     			}
 
-    			if (typeof this.shader.stress === 'string')
-    				textureUrls.push(this.shader.stress);
-    			else
-    				textureUrls.push(this.layout.imageUrl(this.url, 'stress_color'));	
+				// for(let p = 0; p < this.shader.njpegs; p++) {
+    			// 	let url = this.layout.imageUrl(this.url, 'plane_' + p + '_stress');
+    			// 	textureUrls.push(url);
+    			// 	let raster = new Raster$1({ format: 'vec3'});
+    			// 	this.rasters.push(raster);
+    			// }
 
     			if(this.shader.mask) { 
     				let url;
@@ -9354,12 +9388,8 @@ vec4 render(vec3 base[np1], vec2 v_texcoord) {
     			}
     			
     			if(this.shader.normals) { // ITARZOOM must include normals and currently has a limitation: loads the entire tile 
-    				let url;
-    				if (typeof this.shader.normals === 'string')
-    					url = this.shader.normals;
-    				else
-    					url = this.layout.imageUrl(this.url, 'normals');	
-    				textureUrls.push(url);		
+    				textureUrls.push(this.layout.imageUrl(this.url, '../maps/normals'));	
+    				textureUrls.push(this.layout.imageUrl(this.url, '../maps/normals_blur'));		
     			}	
 
     			this.layout.setUrls(textureUrls);
@@ -10386,7 +10416,7 @@ vec4 data() {
     		super({});
 
     		Object.assign(this, {
-    			modes: ['color', 'stress color', 'monochrome', 'curvature'],
+    			modes: ['color', 'monochrome'],
     			mode: 'color',
 
     			nplanes: null,	 //number of coefficient planes
@@ -10420,19 +10450,22 @@ vec4 data() {
     		Object.assign(this, options);
 
             this.ikehata_maps = [
-    			'normals',
     			'base',
     			'metallic',
     			'roughness',
-    			'cavity',
-    			'curvature',
-    			'stress_color',
-    			'stress_normals',
+    			// 'cavity',
+    			// 'curvature',
+    			// 'stress_color',
+    			// 'stress_normals',
     		];
 
     		this.samplers = [];
             for (let i = 0; i < this.ikehata_maps.length; i++)
                 this.samplers.push({ id:i, name:this.ikehata_maps[i], type:'vec3' });
+
+			this.samplers.push({ id:this.samplers.length, name:'normals', type:'vec3' });
+			if (this.normals)
+				this.samplers.push({ id:this.samplers.length, name:'normals_blur', type:'vec3' });
 
             if (this.mask)
                 this.samplers.push({ id:this.samplers.length, name:'mask', type:'vec3' });
@@ -10523,6 +10556,12 @@ vec4 unsharp_masking2(sampler2D tex) {
 	float M = texture${gl2?'':'2D'}(metallic, v_texcoord)[0];
 	float R = texture${gl2?'':'2D'}(roughness, v_texcoord)[0];
 
+	// M = 1.0 - M;
+	R = 1.0 - R;
+	M = 0.0;
+	R = 0.0;
+
+
 	${this['unsharp_masking'] && this['unsharp_color'] ? 'B = unsharp_masking(base).rgb;' : ''}
 	${this['unsharp_masking'] && this['unsharp_normals'] ? 'N = unsharp_masking(normals).rgb;' : ''}
 
@@ -10573,22 +10612,23 @@ vec4 unsharp_masking2(sampler2D tex) {
 
     		let relightMap = `
 	vec3 N = texture${gl2?'':'2D'}(${this.stress_normals?'stress_normals':'normals'}, v_texcoord).rgb;
-	vec3 M = texture${gl2?'':'2D'}(${this.mode}, v_texcoord).rgb;
+	// vec3 M = texture${gl2?'':'2D'}(curvature, v_texcoord).rgb;
 	vec3 L = light;
 
 	${this['unsharp_masking'] && this['unsharp_normals'] ? 'N = unsharp_masking(normals).rgb;' : ''}
 
 	N = N * 2.0 - 1.0;
 	N = normalize(N);
-	M = 1.0 - M;
+	// M = 1.0 - M;
 	float nl = dot(N, L);
-	return nl * M;
+	// return nl * M;
+	return vec3(nl);
 `;
 
     		let renderContent;
     		switch(this.mode) {
     			case 'cavity':
-    			case 'curvature':
+    			case 'monochrome + AO':
     			case 'normals':
     				renderContent = relightMap;
     				break;
@@ -10601,15 +10641,20 @@ vec4 unsharp_masking2(sampler2D tex) {
 
             let str = '';
 
+			if (this.normals)
+				str += `
+uniform sampler2D normals_blur;			
+`;
+
             str += `
 uniform sampler2D normals;
 uniform sampler2D base;
 uniform sampler2D metallic;
 uniform sampler2D roughness;
-uniform sampler2D cavity;
-uniform sampler2D curvature;
-uniform sampler2D stress_color;
-uniform sampler2D stress_normals;
+// uniform sampler2D cavity;
+// uniform sampler2D curvature;
+// uniform sampler2D stress_color;
+// uniform sampler2D stress_normals;
 uniform vec3 light;
 ${gl2? 'in' : 'varying'} vec2 v_texcoord;
 
@@ -10685,16 +10730,11 @@ vec4 data(vec2 v_texcoord) {
     		if(Object.keys(this.rasters).length != 0)
     			throw "Rasters options should be empty!";
 
-    		this.ikehata_maps = [
-    			'normals',
-    			'base',
-    			'metallic',
-    			'roughness',
-    			'cavity',
-    			'curvature',
-    			'stress_color',
-    			'stress_normals',
-    		];
+			this.ikehata_maps = [
+				'base',
+				'metallic',
+				'roughness',
+			];
     		this.worldRotation = 0;
 
     		this.addControl('light', [0, 0]);
@@ -10707,6 +10747,14 @@ vec4 data(vec2 v_texcoord) {
     		let textureUrls = [];
     		for (let map of this.ikehata_maps)
     			textureUrls.push(this.layout.imageUrl(this.url, map));
+			
+			if (this.shader.normals){
+				textureUrls.push(this.layout.imageUrl(this.url, '../maps/normals'));
+				textureUrls.push(this.layout.imageUrl(this.url, '../maps/normals_blur'));
+			}
+			else{
+				textureUrls.push(this.layout.imageUrl(this.url, 'normals'));
+			}
 
     		// if (typeof this.shader.stress === 'string')
     		// 	textureUrls.push(this.shader.stress);
