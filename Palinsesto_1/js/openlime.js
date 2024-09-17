@@ -10474,9 +10474,9 @@ vec4 data() {
     		Object.assign(this, options);
 
             this.ikehata_maps = [
-    			'base',
-    			'metallic',
-    			'roughness',
+    			'albedo',
+    			// 'metallic',
+    			// 'roughness',
     			// 'cavity',
     			// 'curvature',
     			// 'stress_color',
@@ -10484,8 +10484,9 @@ vec4 data() {
     		];
 
     		this.samplers = [];
-            for (let i = 0; i < this.ikehata_maps.length; i++)
-                this.samplers.push({ id:i, name:this.ikehata_maps[i], type:'vec3' });
+            // for (let i = 0; i < this.ikehata_maps.length; i++)
+            //     this.samplers.push({ id:i, name:this.ikehata_maps[i], type:'vec3' });
+			this.samplers.push({ id:this.samplers.length, name:'albedo', type:'vec3' });
 
 			this.samplers.push({ id:this.samplers.length, name:'normals', type:'vec3' });
 			if (this.normals)
@@ -10577,15 +10578,15 @@ vec4 unsharp_masking2(sampler2D tex) {
     		}
 
     		let BRDFIkehata = `
-	vec3 B = texture${gl2?'':'2D'}(${this.mode=='stress'?'stress':'base'},v_texcoord).rgb;
+	vec3 B = texture${gl2?'':'2D'}(${this.mode=='stress'?'stress':'albedo'},v_texcoord).rgb;
 	vec3 N = texture${gl2?'':'2D'}(${this.stress_normals?'stress_normals':'normals'}, v_texcoord).rgb;
-	float M = texture${gl2?'':'2D'}(metallic, v_texcoord)[0];
-	float R = texture${gl2?'':'2D'}(roughness, v_texcoord)[0];
+	// float M = texture${gl2?'':'2D'}(metallic, v_texcoord)[0];
+	// float R = texture${gl2?'':'2D'}(roughness, v_texcoord)[0];
 
 	// M = 1.0 - M;
-	R = 1.0 - R;
-	M = 0.0;
-	R = 0.0;
+	// R = 1.0 - R;
+	float M = 0.0;
+	float R = 0.0;
 
 	${this['unsharp_masking'] && this['unsharp_color'] ? 'B = unsharp_masking(base).rgb;' : ''}
 	${this['unsharp_masking'] && this['unsharp_normals'] ? 'N = unsharp_masking(normals).rgb;' : ''}
@@ -10677,9 +10678,9 @@ uniform sampler2D stress;
 
             str += `
 uniform sampler2D normals;
-uniform sampler2D base;
-uniform sampler2D metallic;
-uniform sampler2D roughness;
+uniform sampler2D albedo;
+// uniform sampler2D metallic;
+// uniform sampler2D roughness;
 // uniform sampler2D cavity;
 // uniform sampler2D curvature;
 // uniform sampler2D stress_normals;
@@ -10760,8 +10761,8 @@ vec4 data(vec2 v_texcoord) {
 
 			this.ikehata_maps = [
 				'base',
-				'metallic',
-				'roughness',
+				// 'metallic',
+				// 'roughness',
 			];
     		this.worldRotation = 0;
 
@@ -10773,8 +10774,9 @@ vec4 data(vec2 v_texcoord) {
 
     		// use url for reference, use this.modes for actual urls
     		let textureUrls = [];
-    		for (let map of this.ikehata_maps)
-    			textureUrls.push(this.layout.imageUrl(this.url, map));
+    		// for (let map of this.ikehata_maps)
+    		// 	textureUrls.push(this.layout.imageUrl(this.url, map));
+			textureUrls.push(this.layout.imageUrl(this.url, '../maps/albedo'));
 			
 			if (this.shader.normals){
 				textureUrls.push(this.layout.imageUrl(this.url, '../maps/normals'));
