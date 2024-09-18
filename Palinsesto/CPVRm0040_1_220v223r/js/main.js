@@ -426,20 +426,20 @@ function main(){
     ui.menu.layer.list.push({section:"Enhancements"});
 
     // NUM
-    let filter_NUM = new UnsharpNormals({label: 'Superficie', parameters: [
+    let filter_NUM = new UnsharpNormals({label: 'Surface', parameters: [
         {label: 'k', value: 1.0, min: 1.0, max: 20.0, step: 1.0},
         {label: 'ka', value: 0.0, min: 0.0, max: 2.0, step: 0.1},
     ]});
     addFilter(ui, ui.menu.layer, filter_NUM);
 
     // CB
-    let filter_CB = new ColorBrightness({label: 'Luminosità', parameters: [
+    let filter_CB = new ColorBrightness({label: 'Intensity', parameters: [
         {label: 'intensity', value: 1.0, min: 1.0, max: 3.0, step: 0.05},
     ]});
     addFilter(ui, ui.menu.layer, filter_CB);
 
     // CT
-    let filter_CT = new ContrastStitching({label: 'Contrasto', parameters: [
+    let filter_CT = new ContrastStitching({label: 'Contrast', parameters: [
         {label: 'left', value: 0.0, min: 0.0, max: 1.0, step: 0.05},
         {label: 'right', value: 1.0, min: 0.0, max: 1.0, step: 0.05},
     ]});

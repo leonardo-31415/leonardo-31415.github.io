@@ -322,46 +322,44 @@ function main(){
     Redo: cancel the effect of undo
     Trash: delete the current annotation
     Download: download all current annotations
-    Add: add a new annotation
+    New: add a new annotation
     </p>
     ————————————————————
     
     
     <h3>Layers overlay menu</h3>
     <p>
-    PTM: classic algorithm for RTI, the used one is Polynomial Texture Map (PTM),
-    presents 4 sub-modes
-     - light: rgb rendering of relighted image
-     - normals: normal map calculated from PTM coefficients
-     - diffuse: enhancement of diffuse component of relighted image
-     - specular: artificial enhancement of specular component of relighted image
-       (the whole image is made specular, based on normal map)
-    
-    NeuralRTI: neural based rendering of the relighted image, slower than a classical one,
-    still interactive relighting is available as the image resolution is decreased when the
-    light is moving
-    
-    Static Maps PS: set of images computed using Photometric Stereo
-    - albedo:
-    - cavity
-    - curvature
-    - him
-    - normals
-    - outlim
-    - residual
-    - shim
+    --- Layers section --- <br>
+    There are three different rendering algorithms: <br>
+    - PTM <br>
+    - RBF <br>
+    - BRDF <br>
+    Different algorithms can render differently reflections on the surface. <br>
+    Every algorithm has three options: <br>
+    - color <br>
+    - stress <br>
+    - monochormatic geometry map (specular or monochrome) <br>
+    Color is the rgb rendering. Stress is an enhanced version of the rgb rendering. The third option
+    is a monochromatic rendering of the surface geometry. "Specular" has also a slider to tune the amount
+    of "fake reflection" to show. <br> <br>
+
+    --- Enhancements section --- <br>
+    - Superficie: <br>
+    Esegue l' "unsharp masking" delle normali della superficie. Pensato per migliorare la visualizzazione della geometria superficiale.
+    Il primo slider controlla l'intensità del fattore di "unsharp" della mappa di normali. Il secondo slider è una costanta che serve ad attenuare
+    artefatti visivi che possono crearsi, risutando in un incremento della luminosità. <br>
+    - Luminosità: <br>
+    Moltiplica il colore per un fattore, simulando un aumento di luminosità. <br>
+    - Contrasto: <br>
+    Usa due valori (slider) per riscalare il colore renderizzato in un certo range, seguendo la formula c_out = (c_in - left) / (right - left)
+    dove c_out è il colore in output, c_in il colore in input, left il primo slider, right il secondo slider. <br>
+    - Gamma: <br>
+    Esegue la correzione di gamma dell'intera immagine, seguendo la formula c_out = c_in ^ (1/2.2)
+    dove c_out è il colore in output, c_in il colore in input <br>
     </p>
     ————————————————————
-    
-    <h3>Options overlay menu</h3>
-    <p>
-    Gamma: apply gamma correction to the image, a slider appears to change gamma factor
-    Unsharp: apply unsharp masking to the image, a slider appears to change the unsharp effect
-    Second Light: add a second light superimposed to the first, placed in the opposite direction
-    (currently, works only on layer PTM)
-    </p>
-    ————————————————————
-    
+   
+
     <h3>Annotations overlay menu</h3>
     <p>
     Each time a new annotation is added, a new entry is created. Select the entry to select the
@@ -372,6 +370,7 @@ function main(){
     </p>
     ————————————————————
     
+
     <h3>General info</h3>
     <p>
     The viewer is still in development.
@@ -427,20 +426,20 @@ function main(){
     ui.menu.layer.list.push({section:"Enhancements"});
 
     // NUM
-    let filter_NUM = new UnsharpNormals({label: 'Superficie', parameters: [
+    let filter_NUM = new UnsharpNormals({label: 'Surface', parameters: [
         {label: 'k', value: 1.0, min: 1.0, max: 20.0, step: 1.0},
         {label: 'ka', value: 0.0, min: 0.0, max: 2.0, step: 0.1},
     ]});
     addFilter(ui, ui.menu.layer, filter_NUM);
 
     // CB
-    let filter_CB = new ColorBrightness({label: 'Luminosità', parameters: [
+    let filter_CB = new ColorBrightness({label: 'Intensity', parameters: [
         {label: 'intensity', value: 1.0, min: 1.0, max: 3.0, step: 0.05},
     ]});
     addFilter(ui, ui.menu.layer, filter_CB);
 
     // CT
-    let filter_CT = new ContrastStitching({label: 'Contrasto', parameters: [
+    let filter_CT = new ContrastStitching({label: 'Contrast', parameters: [
         {label: 'left', value: 0.0, min: 0.0, max: 1.0, step: 0.05},
         {label: 'right', value: 1.0, min: 0.0, max: 1.0, step: 0.05},
     ]});
