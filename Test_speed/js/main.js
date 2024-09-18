@@ -74,7 +74,7 @@ class ColorBrightness extends OpenLIME.ShaderFilter {
     constructor(options) {
         super(options);
         this.uniforms = {
-            intensity: {type: 'float', needsUpdate: true, size: 1, value: 0.0},
+            intensity: {type: 'float', needsUpdate: true, size: 1, value: 2.0},
         }
     }
 
@@ -147,11 +147,96 @@ function main() {
         // });
         // lime.canvas.addLayer('neural_fast_dz', layer_fast_dz);
 
-        let ui = new OpenLIME.UIBasic(lime);
+        let lsc = addLightSphereController();
+        let ui = new OpenLIME.UIBasic(lime, { skin: 'skin/skin.svg', showLightDirections: true, lightSphereController: lsc,});
     
         ui.actions.light.active = true;
         ui.actions.layers.display = true;
         ui.actions.zoomin.display = true;
         ui.actions.zoomout.display = true;
         ui.actions.rotate.display = true;
+
+            // γ-C
+        let filter = new ColorBrightness({label: 'Gamma', parameters: []});
+
+        for (let layer of Object.values(lime.canvas.layers)){
+            if (layer.type == 'svg_annotations')
+                continue;
+            if (layer.type != 'neural') {
+                layer.shader.addFilter(filter);
+                for (let uniform of filter.parameters)
+                    layer.shader.setUniform(uniform.label, uniform.value);
+            }
+            else {
+                layer.imageShader.addFilter(filter);
+                if (filter.uniform)
+                    layer.imageShader.setUniform(filter.uniform, filter.value);
+            }
+        }
+}
+
+function addFilter(ui, menu, filter){
+
+    if (!filter){
+        return;
+    }
+ 
+    let filter_active = false;
+
+    const button = {
+        button: filter.label,
+        onclick: () => { 
+            filter_active = !filter_active;
+
+                if (filter_active){
+                    for (let layer of Object.values(lime.canvas.layers)){
+                        if (layer.type == 'svg_annotations')
+                            continue;
+                        if (layer.type != 'neural') {
+                            layer.shader.addFilter(filter);
+                            for (let uniform of filter.parameters)
+                                layer.shader.setUniform(uniform.label, uniform.value);
+                        }
+                        else {
+                            layer.imageShader.addFilter(filter);
+                            if (filter.uniform)
+                                layer.imageShader.setUniform(filter.uniform, filter.value);
+                        }
+                    }
+                }
+                else{
+                    for (let layer of Object.values(lime.canvas.layers)){
+                        if (layer.type == 'svg_annotations')
+                            continue;
+                        if (layer.type != 'neural')
+                            layer.shader.removeFilter(filter.name);
+                        else
+                            layer.imageShader.removeFilter(filter.name);
+                    }
+                }
+            ui.updateMenu(menu); // Update menu (run status() callback)
+        },
+        status: () => {
+            return filter_active ? 'active' : '';
+        }
+    };
+    menu.list.push(button);
+
+    for (let uniform of filter.parameters) {
+        const slider = {
+            html: `<input id="${uniform.label}Slider" type="range" min="${uniform.min}" max="${uniform.max}" value=${uniform.value} step="${uniform.step}">
+                <output id="${uniform.label}SliderOutput">${uniform.value}</output>`,
+
+            onchange: () => {
+                uniform.value = document.querySelector(`#${uniform.label}Slider`).value;
+                document.querySelector(`#${uniform.label}SliderOutput`).textContent = uniform.value;
+                if (filter_active){
+                    for (let layer of Object.values(lime.canvas.layers)){
+                        layer.shader.setUniform(uniform.label, uniform.value);
+                    }
+                }
+            }
+        };
+        menu.list.push(slider);
+    }
 }
