@@ -113,22 +113,56 @@ main();
 
 function main() {
 	
-        let layer_slow = new OpenLIME.Layer({
+        // let layer_slow = new OpenLIME.Layer({
+        //     type: 'neural',
+        //     url: 'data/Lamina_Slow/info.json',
+        //     layout: 'image',
+        //     zindex: 0,
+        //     label: 'SLOW'
+        // });
+        // lime.canvas.addLayer('neural_slow', layer_slow);
+        // let layer_fast = new OpenLIME.Layer({
+        //     type: 'neural',
+        //     url: 'data/Lamina_Fast/info.json',
+        //     layout: 'image',
+        //     zindex: 0,
+        //     label: 'FAST'
+        // });
+        // lime.canvas.addLayer('neural_fast', layer_fast);
+
+        let layer_slow_2 = new OpenLIME.Layer({
             type: 'neural',
-            url: 'data/Lamina_Slow/info.json',
+            url: 'data/Retablo_big_Slow/info.json',
             layout: 'image',
             zindex: 0,
-            label: 'SLOW'
+            label: 'Retablo big SLOW'
         });
-        lime.canvas.addLayer('neural_slow', layer_slow);
-        let layer_fast = new OpenLIME.Layer({
+        lime.canvas.addLayer('neural_slow_2', layer_slow_2);
+        let layer_fast_2 = new OpenLIME.Layer({
             type: 'neural',
-            url: 'data/Lamina_Fast/info.json',
+            url: 'data/Retablo_big_Fast/info.json',
             layout: 'image',
             zindex: 0,
-            label: 'FAST'
+            label: 'Retablo big FAST'
         });
-        lime.canvas.addLayer('neural_fast', layer_fast);
+        lime.canvas.addLayer('neural_fast_2', layer_fast_2);
+
+        let layer_slow_3 = new OpenLIME.Layer({
+            type: 'neural',
+            url: 'data/Retablo_small_Slow/info.json',
+            layout: 'image',
+            zindex: 0,
+            label: 'Retablo small SLOW'
+        });
+        lime.canvas.addLayer('neural_slow_3', layer_slow_3);
+        let layer_fast_3 = new OpenLIME.Layer({
+            type: 'neural',
+            url: 'data/Retablo_small_Fast/info.json',
+            layout: 'image',
+            zindex: 0,
+            label: 'Retablo small FAST'
+        });
+        lime.canvas.addLayer('neural_fast_3', layer_fast_3);
 
         // let layer_slow_dz = new OpenLIME.Layer({
         //     type: 'neural',
