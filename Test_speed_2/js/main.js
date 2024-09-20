@@ -115,7 +115,7 @@ function main() {
 	
         let layer_slow = new OpenLIME.Layer({
             type: 'neural',
-            url: 'data/Slow_500_200/info.json',
+            url: 'data/Slow_1000_1000/info.json',
             layout: 'image',
             zindex: 0,
             label: 'SLOW'
@@ -123,7 +123,7 @@ function main() {
         lime.canvas.addLayer('neural_slow', layer_slow);
         let layer_fast = new OpenLIME.Layer({
             type: 'neural',
-            url: 'data/Fast_500_200/info.json',
+            url: 'data/Fast_1000_1000/info.json',
             layout: 'image',
             zindex: 0,
             label: 'FAST'
