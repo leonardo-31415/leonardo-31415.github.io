@@ -9514,9 +9514,9 @@ vec4 data1() {
 
     			// console.log("Canvas fps: ", this.canvas.fps, "relighted: ", this.relighted, "Refine? ", this.refine, " fraction: ", this.relightFraction, " w: ", this.tileRelightWidth);
     			// ********
-    			// if (this.canvas.fps <= 60.0)
-    			// 	this.fps_container.push(this.canvas.fps);
-				this.fps_container.push(this.canvas.fps);
+    			if (this.canvas.fps <= 60.0)
+    				this.fps_container.push(this.canvas.fps);
+				// this.fps_container.push(this.canvas.fps);
     			
     			console.log('FPS rilevati ', this.fps_container);
 
