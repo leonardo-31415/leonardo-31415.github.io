@@ -160,7 +160,7 @@ async function main() {
             url: `data/bln/${model}/info.json`,
             layout: 'image',
             zindex: 0,
-            label: 'bln'
+            label: 'RTI (BLN)'
         });
         lime.canvas.addLayer('bln', layer_bln);
 
