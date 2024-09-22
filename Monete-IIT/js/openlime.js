@@ -1840,7 +1840,10 @@
     class Layer {
     	/**
     	* Creates a Layer. Additionally, an object literal with Layer `options` can be specified.
-    	* Signals are triggered when the layer is ready (i.e. completely initialized) or if its state variables have been updated (a redraw is needed).
+    	* Signals are triggered when:
+    	* ready: the size and layout of the layer is known
+    	* update: some new tile is available, or some visualization parameters has changed
+    	* loaded: is fired when all the images needed have been downloaded
     	* @param {Object} [options]
     	* @param {(string|Layout)} options.layout='image' The layout (the format of the input raster images).
     	* @param {string} options.type A string identifier to select the specific derived layer class to instantiate.
@@ -1851,7 +1854,7 @@
     	* @param {number} options.zindex Stack ordering value for the rendering of layers (higher zindex on top).
     	* @param {bool} options.overlay=false  Whether the layer must be rendered in overlay mode.
     	* @param {number} options.prefetchBorder=1 The threshold (in tile units) around the current camera position for which to prefetch tiles.
-    	* @param {number} options.mipmapBias=0.4 The mipmap bias of the texture.
+    	* @param {number} options.mipmapBias=0.2 Determine which texture is used when scale is not a power of 2. 0: use always the highest resulution, 1 the lowest, 0.5 switch halfway.
     	* @param {Object} options.shaders A map (shadersId, shader) of the shaders usable for the layer rendering. See @link {Shader}.
     	* @param {Controller[]} options.controllers An array of UI device controllers active on the layer.
     	* @param {Layer} options.sourceLayer The layer from which to take the tiles (in order to avoid tile duplication).
@@ -1911,6 +1914,7 @@
     			height: 0,
     			prefetchBorder: 1,
     			mipmapBias: 0.4,
+    			pixelSize: 0.0,
 
     			//signals: { update: [], ready: [], updateSize: [] },  //update callbacks for a redraw, ready once layout is known.
 
@@ -1919,7 +1923,7 @@
     			//each tile is tex: [.. one for raster ..], missing: 3 missing tex before tile is ready.
     			//only raster used by the shader will be loade.
     			queue: [],     //queue of tiles to be loaded.
-    			requested: {},  //tiles requested.
+    			requested: new Map,  //tiles requested.
     		});
 
     		Object.assign(this, options);
@@ -1929,6 +1933,7 @@
 
     		if (typeof (this.layout) == 'string') {
     			let size = { width: this.width, height: this.height };
+    			if (this.server) size.server = this.server;
     			this.setLayout(new Layout(null, this.layout, size));
     		} else {
     			this.setLayout(this.layout);
@@ -2010,9 +2015,6 @@
 
     		// Set signal to acknowledge change of bbox when it is known. Let this signal go up to canvas
     		this.layout.addEvent('updateSize', () => {
-    			if (this.shaders)
-    				for (let shader of Object.values(this.shaders))
-    					shader.setTileSize(this.layout.getTileSize());
     			if(this.shader)
     				this.shader.setTileSize(this.layout.getTileSize());
     			this.emit('updateSize');
@@ -2115,6 +2117,16 @@
     		// FIXME: this do not consider children layers
     		return this.transform.z;
     	}
+
+
+    	/**
+    	* Transform-adjusted spatial resolution for this layer
+    	* @return {number} size of a single pixel in mm
+    	*/
+    	pixelSizePerMM() {
+    		return this.pixelSize * this.transform.z;
+    	}
+
 
     	/**
     	 * Gets the layer bounding box (<FIXME> Change name: box is in scene coordinates)
@@ -2591,14 +2603,14 @@
     		if (this.tiles.has(tile.index))
     			throw "AAARRGGHHH double tile!";
 
-    		if (this.requested[tile.index]) {
+    		if (this.requested.has(tile.index)) {
     			console.log("Warning: double request!");
     			callback("Double tile request");
     			return;
     		}
 
     		this.tiles.set(tile.index, tile);
-    		this.requested[tile.index] = true;
+    		this.requested.set(tile.index, true);
 
     		if (this.layout.type == 'itarzoom') {
     			tile.url = this.layout.getTileURL(null, tile);
@@ -2628,7 +2640,7 @@
     			}
     			tile.missing = 0;
     			this.emit('update');
-    			delete this.requested[tile.index];
+    			this.requested.delete(tile.index);
     			if (callback) callback(tile.size);
     			return;
     		}
@@ -2648,55 +2660,17 @@
     			tile.missing--;
     			if (tile.missing <= 0) {
     				this.emit('update');
-    				delete this.requested[tile.index];
+    				this.requested.delete(tile.index);
+    				if(this.requested.size == 0)
+    					this.emit('loaded');
     				if (callback) callback(size);
     			}
     		}
     	}
-
-    	loadStaticMaps(staticMaps) {
-
-    		if (!staticMaps)
-    			if (!this.staticMaps)
-    				return;
-    			else
-    				staticMaps = this.staticMaps;
-
-    		let textureUrls = [];
-
-    		for (let [map,url] of Object.entries(staticMaps)){
-
-    			if (typeof url !== 'string' || url === '')
-    				url = this.layout.imageUrl(this.url, map);	
-
-    			textureUrls.push(url);
-
-    			let raster = new Raster({ format: 'vec3' });
-    			this.rasters.push(raster);
-    		}
-
-    		this.layout.setUrls(textureUrls);
-
-    		// for (let url of textureUrls) {
-    		// 	let raster = new Raster({ format: 'vec3' });
-    		// 	this.rasters.push(raster);
-    		// }
-    	}
-
-    	rotateLight(light) {
-    		let [x,y] = light;
-    		let r = Math.sqrt(x*x + y*y);
-    		if(r > 1) {
-    			x /= r;
-    			y /= r;
-    		}
-    		let rotated = Transform.rotate(x, y, 360 - this.worldRotation);
-    		return [rotated.x, rotated.y];
-    	}
     }
 
     Layer.prototype.types = {};
-    addSignals(Layer, 'update', 'ready', 'updateSize');
+    addSignals(Layer, 'ready', 'update', 'loaded', 'updateSize');
 
     //// HELPERS
 
@@ -2924,7 +2898,8 @@
     		let sceneBBox = Layer.computeLayersBBox(this.layers, discardHidden);
     		let minScale =  Layer.computeLayersMinScale(this.layers, discardHidden);
     		
-    		if (sceneBBox != null) this.camera.updateBounds(sceneBBox, minScale);
+    		if (sceneBBox != null && this.camera.viewport) 
+    			this.camera.updateBounds(sceneBBox, minScale);
     		this.emit('updateSize');
     	}
 
@@ -3423,7 +3398,7 @@
      * @param {Raster#Format} options.format='vec3' The color format of the image.
      */
 
-    class Raster$1 {
+    class Raster {
 
     	constructor(options) {
 
@@ -3502,10 +3477,7 @@
 
     		var tex = gl.createTexture();
     		gl.bindTexture(gl.TEXTURE_2D, tex);
-    		gl.texParameterf(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    		gl.texParameterf(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); //_MIPMAP_LINEAR);
-    		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
     		let glFormat = gl.RGBA;
     		switch(this.format) {
     			case 'vec3':
@@ -3518,7 +3490,20 @@
     				glFormat = gl.LUMINANCE;
     				break;
     		} 
+
     		gl.texImage2D(gl.TEXTURE_2D, 0, glFormat, glFormat, gl.UNSIGNED_BYTE, img);
+    		gl.texParameterf(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+    		//build mipmap for large images.
+    		if(this.width > 1024 || this.height > 1024) {
+    			gl.generateMipmap(gl.TEXTURE_2D);
+    			gl.texParameterf(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    		} else {
+    			gl.texParameterf(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    		}
+
+    		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     		return tex;
     	}
     }
@@ -3680,7 +3665,8 @@
     		let src = `${gl2 ? '#version 300 es' : ''}\n`;
     		src += `precision highp float;\n`;
     		src += `precision highp int;\n`;
-    		src += `const vec2 tileSize = vec2(${this.tileSize[0]}.0, ${this.tileSize[1]}.0);\n`;
+    		// src += `const vec2 tileSize = vec2(${this.tileSize[0]}.0, ${this.tileSize[1]}.0);\n`;
+    		src += `const vec2 tileSize = vec2(${this.tileSize[0]}, ${this.tileSize[1]});\n`;
     		src += this.fragShaderSrc() + '\n';
 
     		for (let f of this.filters) {
@@ -3691,28 +3677,11 @@
     			src += f.fragDataSrc() + '\n\n';
     		}
 
-    		if (this.mask)
-                src += `
-uniform sampler2D mask;
-`;
-
     		src += `
 		${gl2 ? 'out' : ''} vec4 color;
-		void main() {
-`;
-
-    		if (this.mask)
-    			src +=`
-			float mask_pixel = texture${gl2?'':'2D'}(mask, v_texcoord)[0];
-			if (mask_pixel == 0.0)
-				color = vec4(0);
-			else
-				color = mask_pixel * data(v_texcoord);
-`;
-    		else
-    			src += `
-			color = data(v_texcoord);
-`;
+		void main() { 
+			color = data();
+			`;
     		for (let f of this.filters) {
     			src += `color=${f.functionName()}(color);\n`;
     		}
@@ -3873,20 +3842,17 @@ ${gl2 ? 'out' : 'varying'} vec2 v_texcoord;
 
 
     	fragShaderSrc(gl) {
-            let gl2 = !(gl instanceof WebGLRenderingContext);
-
-            let str;
-
-            str = `
+    		let gl2 = !(gl instanceof WebGLRenderingContext);
+    		let str = `
 
 uniform sampler2D kd;
+
 ${gl2? 'in' : 'varying'} vec2 v_texcoord;
 
-vec4 data(vec2 v_texcoord) {
-        return texture${gl2?'':'2D'}(kd, v_texcoord);
+vec4 data() {
+	return texture${gl2?'':'2D'}(kd, v_texcoord);
 }
 `;
-
     		return str;
     	}
     }
@@ -3920,40 +3886,21 @@ vec4 data(vec2 v_texcoord) {
     		if(Object.keys(this.rasters).length != 0)
     			throw "Rasters options should be empty!";
 
-    		let textureUrls = [];
-
     		if (this.url)
-    			textureUrls.push(this.url);
+    			this.layout.setUrls([this.url]);
     		else if (this.layout.urls.length == 0)
     			throw "Missing options.url parameter";	
 
-    		if(this.mask) { // ITARZOOM must include normals and currently has a limitation: loads the entire tile 
-    			let url;
-    			if (typeof this.mask === 'string')
-    				url = this.mask;
-    			else
-    				url = this.layout.imageUrl(this.url, 'mask');	
-    			textureUrls.push(url);		
-    		}
-
-    		this.layout.setUrls(textureUrls);
-
     		const rasterFormat = this.format != null ? this.format : 'vec4';
-    		for (let url of textureUrls) {
-    			let raster = new Raster$1({ format: rasterFormat }); //FIXME select format for GEO stuff
-    			this.rasters.push(raster);
-    		}
+    		let raster = new Raster({ format: rasterFormat }); //FIXME select format for GEO stuff
 
-    		let shaderOptions = {
-    			label: 'Rgb',
-    			mask: this.mask,
-    			samplers: [{ id:0, name:'kd', type: rasterFormat }]
-    		};
+    		this.rasters.push(raster);
+    		
 
-    		if (this.mask)
-    			shaderOptions['samplers'].push({ id:1, name:'mask', type: rasterFormat });
-
-    		let shader = new Shader(shaderOptions);
+    		let shader = new Shader({
+    			'label': 'Rgb',
+    			'samplers': [{ id:0, name:'kd', type: rasterFormat }]
+    		});
     		
     		this.shaders = {'standard': shader };
     		this.setShader('standard');
@@ -4007,7 +3954,15 @@ vec4 data(vec2 v_texcoord) {
     		this.textures = [];
     		this.framebuffers = [];
     		this.status = 'ready';
+
+    		this.addControl('light', [0, 0]);
+    		this.worldRotation = 0;
     	}
+
+    	setLight(light, dt) {
+    		this.setControl('light', light, dt);
+    	}
+
 
     	/** @ignore */
     	draw(transform, viewport) {
@@ -4021,6 +3976,12 @@ vec4 data(vec2 v_texcoord) {
     		let w = viewport.dx;
     		let h = viewport.dy;
 
+    		this.shader.setTileSize(this.layout.getTileSize());
+    		this.worldRotation = transform.a + this.transform.a;
+    		let light = this.controls['light'].current.value;
+    		let rotated = Transform.rotate(light[0], light[1], this.worldRotation*Math.PI);
+    		this.shader.setLight([rotated.x, rotated.y]);
+    		
     		if(!this.framebuffers.length || this.layout.width != w || this.layout.height != h) {
     			this.deleteFramebuffers();
     			this.layout.width = w;
@@ -4140,14 +4101,14 @@ vec4 data(vec2 v_texcoord) {
     				id: Annotation.UUID(),
     				code: null,
     				label: null,
-    				class: null,
     				description: null,
+    				class: null,
     				target: null,
     				svg: null,
     				image: null,
     				region: null,
     				data: {},
-    				style: {},
+    				style: null,
     				bbox: null,
     				visible: true,
     				state: null,
@@ -4366,31 +4327,25 @@ vec4 data(vec2 v_texcoord) {
 
     		let list =  this.annotationsListEntry.element.parentElement.querySelector('.openlime-list');
     		list.innerHTML = html;
+    		list.addEventListener('click', (e) =>  { 
+    			let svg = e.srcElement.closest('svg');
+    			if(svg) {
+    				let entry = svg.closest('[data-annotation]');
+    				entry.classList.toggle('hidden');
+    				let id = entry.getAttribute('data-annotation');
+    				let anno = this.getAnnotationById(id);
+    				anno.visible = !anno.visible;
+    				anno.needsUpdate = true;
+    				this.emit('update');
+    			}
 
-    		if (!this.listHasEvent) {
-    			list.addEventListener('click', (e) =>  { 
-    				console.log('qulcosa');
-    				let svg = e.srcElement.closest('svg');
-    				if(svg) {
-    					let entry = svg.closest('[data-annotation]');
-    					entry.classList.toggle('hidden');
-    					let id = entry.getAttribute('data-annotation');
-    					let anno = this.getAnnotationById(id);
-    					anno.visible = !anno.visible;
-    					anno.needsUpdate = true;
-    					this.emit('update');
-    				}
-
-    				let id = e.srcElement.getAttribute('data-annotation');
-    				if(id) {
-    					this.clearSelected();
-    					let anno = this.getAnnotationById(id);
-    					this.setSelected(anno, true);
-    				}
-    			});
-
-    			this.listHasEvent = true;
-    		}
+    			let id = e.srcElement.getAttribute('data-annotation');
+    			if(id) {
+    				this.clearSelected();
+    				let anno = this.getAnnotationById(id);
+    				this.setSelected(anno, true);
+    			}
+    		});
     	}
 
     	/** @ignore */
@@ -4677,7 +4632,7 @@ vec4 data(vec2 v_texcoord) {
                 }
 
                 for (let a of this.annotations) {
-                    let raster = new Raster$1({ format: rasterFormat });
+                    let raster = new Raster({ format: rasterFormat });
                     this.rasters.push(raster);
                 }
                 console.log("Set " + this.annotations.length + " annotations into layout");
@@ -4773,7 +4728,7 @@ vec4 data() {
     			throw "Missing options.url parameter";
 
     		const rasterFormat = this.format != null ? this.format : 'vec4';
-    		let raster = new Raster$1({ format: rasterFormat }); //FIXME select format for GEO stuff
+    		let raster = new Raster({ format: rasterFormat }); //FIXME select format for GEO stuff
 
     		this.rasters.push(raster);
 
@@ -4902,8 +4857,12 @@ vec4 data() {
      * width and height in pixels of the original image. See: {@link https://www.microimages.com/documentation/TechGuides/78googleMapsStruc.pdf Google Maps}
      * * **zoomify** - The URL indicates the location of Zoomify configuration file (for instance, 'https://my.example/image/ImageProperties.xml').
      * See: {@link http://www.zoomify.com/ZIFFileFormatSpecification.htm Zoomify}
+     * * **iip** - The server parameter (optional) indicates the URL of the IIPImage endpoint (for example '/fcgi-bin/iipsrv.fcgi').
+     * The URL parameter indicates either just the name of the path and image file (for instance 'image.tif') if the server parameter has been set or the full IIP URL if not
+     * (for instance '/fcgi-bin/iipsrv.fcgi?FIF=image.tif' or 'https://you.server//fcgi-bin/iipsrv.fcgi?FIF=image.tif' if image is hosted elsewhere)
+     * See: {@link https://iipimage.sourceforge.io/ IIPImage Server}
      * * **iiif** - According to the standard, the URL is the address of a IIIF server (for instance, 'https://myiiifserver.example/').
-     * See: {@link https://iipimage.sourceforge.io/ IIP Server}, {@link https://iiif.io/api/image/3.0/ IIIF }
+     * See: {@link https://iiif.io/api/image/3.0/ IIIF }
      * * **tarzoom** and **itarzoom** - This is a custom format of the OpenLIME framework. It can be described as the TAR of a DeepZoom (all the DeepZoom image pyramid is stored in a single file).
      * It takes advantage of the fact that current web servers are able to handle partial-content HTTP requests. Tarzoom facilitates
      * the work of the server, which is not penalised by having to manage a file system with many small files. The URL is the address of the *.tzi* file 
@@ -4951,16 +4910,14 @@ vec4 data() {
     		this.urls = urls;
     		(async () => {
     			switch(this.type) {
-    				case 'google':      await this.initGoogle(); break; // No Url needed
-
-    				case 'deepzoom1px': await this.initDeepzoom(true); break; // urls[0] only needed
+    				case 'google':      await this.initGoogle(); break;        // No Url needed
+    				case 'deepzoom1px': await this.initDeepzoom(true); break;  // urls[0] only needed
     				case 'deepzoom':    await this.initDeepzoom(false); break; // urls[0] only needed
-    				case 'zoomify':     await this.initZoomify(); break; // urls[0] only needed
-    				case 'iiif':        await this.initIIIF(); break; // urls[0] only needed
-
-    				case 'tarzoom':     await this.initTarzoom(); break; // all urls needed
-
-    				case 'itarzoom':    await this.initITarzoom(); break; // actually it has just one url
+    				case 'zoomify':     await this.initZoomify(); break;       // urls[0] only needed
+    				case 'iiif':        await this.initIIIF(); break;          // urls[0] only needed
+    			        case 'iip':         await this.initIIP(); break;           // urls[0] only needed
+    				case 'tarzoom':     await this.initTarzoom(); break;       // all urls needed
+    				case 'itarzoom':    await this.initITarzoom(); break;      // actually it has just one url
     			}
     			this.initBoxes();
     			this.status = 'ready';
@@ -4974,8 +4931,7 @@ vec4 data() {
     	imageUrl(url, plane) {
     		let path = url.substring(0, url.lastIndexOf('/')+1);
     		switch(this.type) {
-    			case 'image':    return path + plane + '.jpg';			case 'google':   return path + plane;			case 'deepzoom': return path + plane + '.dzi';			case 'tarzoom':  return path + plane + '.tzi';			case 'itarzoom': return path + 'planes.tzi';			case 'zoomify':  return path + plane + '/ImageProperties.xml';			//case 'iip':      return this.plane.throw Error("Unimplemented");
-    			case 'iiif': throw Error("Unimplemented");
+    			case 'image':    return path + plane + '.jpg';			case 'google':   return path + plane;			case 'deepzoom': return path + plane + '.dzi';			case 'tarzoom':  return path + plane + '.tzi';			case 'itarzoom': return path + 'planes.tzi';			case 'zoomify':  return path + plane + '/ImageProperties.xml';		        case 'iip':      return url + "&SDS=" + plane.substring(plane.lastIndexOf('_')+1, plane.length);			case 'iiif': throw Error("Unimplemented");
     			default:     throw Error("Unknown layout: " + this.type);
     		}
     	}
@@ -5191,7 +5147,7 @@ vec4 data() {
     	* @param {Transform} transform The current transform.
     	* @param {Transform} layerTransform The transform of the calling layer
      	* @param {number} border The threshold (in tile units) around the current camera position for which to prefetch tiles.
-    	* @param {number} bias The mipmap bias of the texture.
+    	* @param {number} bias Determine which texture is used when scale is not a power of 2. 0: use always the highest resulution, 1 the lowest, 0.5 switch halfway.
      	* @returns {Object} level: the optimal level in the pyramid, pyramid: array of bounding boxes in tile units.
      	*/
     	neededBox(viewport, transform, layerTransform, border, bias) {
@@ -5424,10 +5380,47 @@ vec4 data() {
     			return `${tileUrl}/${xr},${yr},${wr},${hr}/${ws},${hs}/0/default.jpg`;
     		};
     	}
+
+            async initIIP() {
+
+    		const server = this.server ? (this.server+'?FIF=') : '';
+    		const url = server + this.urls[0] + "&obj=Max-size&obj=Tile-size&obj=Resolution-number";
+
+    		let response = await fetch(url);
+    		if(!response.ok) {
+    			this.status = "Failed loading " + url + ": " + response.statusText;
+    			throw new Error(this.status);
+    		}
+    		let info = await response.text();
+
+    		let tmp = info.split( "Tile-size:" );
+    		if(!tmp[1]) return null;
+    		this.tilesize = parseInt(tmp[1].split(" ")[0]);
+    		tmp = info.split( "Max-size:" );
+    		if(!tmp[1]) return null;
+    		tmp = tmp[1].split('\n')[0].split(' ');
+    		this.width = parseInt(tmp[0]);
+    		this.height= parseInt(tmp[1]);
+    		this.nlevels  = parseInt(info.split( "Resolution-number:" )[1]);
+
+    		this.getTileURL = (rasterid, tile) => {
+
+    			// Tile index for this resolution
+    			let index = tile.y*this.qbox[tile.level].xHigh + tile.x;
+
+    			// Handle different formats if requested or indicated in the info.json
+    			let command = "JTL"; // Default
+    			if (this.suffix == "webp") command = "WTL";
+    			else if( this.suffix == "png" ) command = "PTL";
+
+    			let url = (this.server?this.server+'?FIF=':'') + this.urls[rasterid] + "&" + command + "=" + tile.level + "," + index;
+    			return url;
+    		};
+    	}
     }
 
     let factory = (url, type, options) => { return new LayoutTiles(url, type, options); };
-    for(let type of ['google', 'deepzoom1px', 'deepzoom', 'zoomify', 'iiif', 'tarzoom', 'itarzoom'])
+    for(let type of ['google', 'deepzoom1px', 'deepzoom', 'zoomify', 'iiif', 'iip', 'tarzoom', 'itarzoom'])
         Layout.prototype.types[type] = factory;
 
     class ShaderFilter {
@@ -7269,12 +7262,14 @@ void main() {
     	 * @ignore
     	*/
     	resize(width, height) {
+    		if(width == 0 || height == 0) return;
     		// Test with retina display!
     		this.canvasElement.width = width * window.devicePixelRatio;
     		this.canvasElement.height = height * window.devicePixelRatio;
 
     		let view = { x: 0, y: 0, dx: width, dy: height, w: width, h: height };
     		this.camera.setViewport(view);
+    		this.canvas.updateSize();
     		this.emit('resize', view);
 
     		this.canvas.prefetch();
@@ -7309,6 +7304,8 @@ void main() {
     		this.camera.getCurrentTransform(time);
 
     		let done = this.canvas.draw(time);
+    		// ********
+    		// done = false;
     		if (!done)
     			this.redraw();
     		this.emit('draw');
@@ -7369,24 +7366,24 @@ void main() {
     	 */
     	static async appendIcon(container, icon) {
     		let element = null;
+    		let box = null;
     		if (typeof icon == 'string') {
     			element = await Skin.getElement(icon);
     			icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     			icon.appendChild(element);
-    			container.appendChild(icon);
-    			let box = element.getBBox();
+    			document.body.appendChild(icon);
+    			box = element.getBBox();
     			let tlist = element.transform.baseVal;
     			if (tlist.numberOfItems == 0)
     				tlist.appendItem(icon.createSVGTransform());
     			tlist.getItem(0).setTranslate(-box.x, -box.y);
-    			icon.setAttribute('viewBox', `${-pad} ${-pad} ${box.width + 2 * pad} ${box.height + 2 * pad}`);
-    			icon.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     		} else {
-    			container.appendChild(icon);
-    			let box = icon.getBBox();
-    			icon.setAttribute('viewBox', `${-pad} ${-pad} ${box.width + 2 * pad} ${box.height + 2 * pad}`);
-    			icon.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    			document.body.appendChild(icon);
+    			box = icon.getBBox();
     		}
+    		icon.setAttribute('viewBox', `${-pad} ${-pad} ${box.width + 2 * pad} ${box.height + 2 * pad}`);
+    		icon.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    		container.appendChild(icon);
     		return icon;
     	 }
     }
@@ -7396,8 +7393,8 @@ void main() {
 
     class Units {
         constructor(options) {
-            this.units = ["km", "m", "cm", "mm"],
-            this.allUnits = { "mm": 1, "cm": 10, "m": 1000, "km": 1e6, "in": 254, "ft": 254*12,  };
+            this.units = ["km", "m", "cm", "mm", "µm"],
+            this.allUnits = { "µm": 0.001, "mm": 1, "cm": 10, "m": 1000, "km": 1e6, "in": 254, "ft": 254*12 };
             this.precision = 2;
             if(options)
                 Object.assign(options, this);
@@ -7408,7 +7405,7 @@ void main() {
     			return '';
             if(unit)
                 return (d/this.allUnits[unit]).toFixed(this.precision) + unit;
-            
+
             let best_u = null;
             let best_penalty = 100;
             for(let u of this.units) {
@@ -7431,7 +7428,7 @@ void main() {
                 viewer: viewer,
                 width: 200,
                 fontSize: 24,
-    			precision: 0
+                precision: 0
             }, options);
     		Object.assign(this, options);
 
@@ -7442,7 +7439,7 @@ void main() {
 
     		this.text = Util.createSVGElement('text', { x: '50%', y: '16px', 'dominant-basiline': 'middle', 'text-anchor': 'middle' });
     		this.text.textContent = "";
-    		
+
     		this.svg.appendChild(this.line);
     		this.svg.appendChild(this.text);
     		this.viewer.containerElement.appendChild(this.svg);
@@ -7463,7 +7460,7 @@ void main() {
     		this.line.setAttribute('x2', this.width - margin/2);
     		this.text.textContent = this.format(s.label);
     	}
-    	
+
 
         //find best length for scale from min -> max
     	//zoom 2 means a pixel in image is now 2 pixel on screen, scale is
@@ -8539,7 +8536,7 @@ void main() {
     		super({});
 
     		Object.assign(this, {
-    			modes: ['color', 'stress', 'specular'],
+    			modes: ['light', 'normals', 'diffuse', 'specular'],
     			mode: 'normal',
     			type:        ['ptm', 'hsh',  'sh', 'rbf', 'bln'],
     			colorspaces: ['lrgb', 'rgb', 'mrgb', 'mycc'],
@@ -8556,45 +8553,19 @@ void main() {
     			bias: null,
 
     			basis: null,       //PCA basis for rbf and bln
-    			lweights: null,    //light direction dependent coefficients to be used with coefficient planes
-
-				//////////////////////////////////////////
-    			numLights: 1,
-
-				mirror: false,
-				azimuth: false,
-
-				unsharp_factor: '10.0',
-				unsharp_radius: '5.0',
-				unsharp_sigma: '0.5',
-				unsharp_color: false,
-				unsharp_normals: false,
-
-				sigmoid: false,
-				sigmoid_value: '0.3',
-
-				contrast: false,
-				contrast_max: '1.0',
-				contrast_min: '0.0',
-
-				gamma_correction: false,
-				gamma: '2.2',
-
-				stress_color: false,
-				stress_geometry_1: false,
-				stress_geometry_2: false,
+    			lweights: null    //light direction dependent coefficients to be used with coefficient planes
     		});
     		Object.assign(this, options);
 
     		if(this.relight)
     			this.init(this.relight);
 
-    		this.setMode('color');
+    		this.setMode('light');
     	}
 
     	/*
      * Set current rendering mode
-     * @param {string} mode one of 'color', 'normals', 'diffuse', 'specular'
+     * @param {string} mode one of 'light', 'normals', 'diffuse', 'specular'
      * @param {number} dt in ms, interpolation duration.
      */
     	setMode(mode) {
@@ -8602,13 +8573,10 @@ void main() {
     			throw Error("Unknown mode: " + mode);
     		this.mode = mode;
 
-    		if( mode != 'color' && mode != 'stress') {
-    			let base = this.lightWeights([ 0.612,  0.354, 0.707]);
-    			let base1 = this.lightWeights([-0.612,  0.354, 0.707]);
-    			let base2 = this.lightWeights([     0, -0.707, 0.707]);
-    			this.setUniform('base', base);
-    			this.setUniform('base1', base1);
-    			this.setUniform('base2', base2);
+    		if( mode != 'light') {
+    			this.lightWeights([ 0.612,  0.354, 0.707], 'base');
+    			this.lightWeights([-0.612,  0.354, 0.707], 'base1');
+    			this.lightWeights([     0, -0.707, 0.707], 'base2');
     		}
     		this.needsUpdate = true;
     	}
@@ -8629,50 +8597,8 @@ void main() {
     		let z = Math.sqrt(Math.max(0, 1 - x*x - y*y));
     		light = [x, y, z];
 
-    		if (this.mode == 'color' || this.mode == 'stress') {
-    			let base = this.lightWeights(light);
-
-    			if (this['mirror']) {
-    				let a = Math.atan2(y,x);
-    				let da = 2 * Math.PI / 2;
-    				let x1 = Math.cos(a + da);
-    				let y1 = Math.sin(a + da);
-    				let base1 = this.lightWeights([x1, y1, 0]);
-    				for (let j = 0; j < base.length; j++) {
-    					base[j] = base[j] + base1[j];
-    					base[j] /= 2;
-    				}
-    			}
-
-    			else if (this['azimuth']) {
-    				let base1 = this.lightWeights([0, 0, 1]);
-    				for (let j = 0; j < base.length; j++) {
-    					base[j] = base[j] + base1[j];
-    					base[j] /= 2;
-    				}
-    			}
-
-    			this.setUniform('base', base);
-    		}
-
-    		/*
-    		if (this.mode == 'multi light'){
-    			let base = this.lightWeights(light);
-    			let a = Math.atan2(y,x);
-    			let da = 2 * Math.PI / this.numLights;
-
-    			for (let i = 1; i < this.numLights; i++) {
-    				let x1 = Math.cos(a + da*i);
-    				let y1 = Math.sin(a + da*i);
-    				let base1 = this.lightWeights([x1, y1, 0]);
-    				for (let j = 0; j < base.length; j++)
-    					base[j] = base[j] + base1[j];
-    			}
-
-    			this.setUniform('base', base);
-    		}
-    		*/
-
+    		if(this.mode == 'light')
+    			this.lightWeights(light, 'base');
     		this.setUniform('light', light);
     	}
     	setSpecularExp(value) {
@@ -8694,22 +8620,9 @@ void main() {
 
     		for(let i = 0; i < this.njpegs; i++)
     			this.samplers.push({ id:i, name:'plane'+i, type:'vec3' });
-
-    		// for(let i = 0; i < this.njpegs; i++)
-    		// 	this.samplers.push({ id:i+this.njpegs, name:'plane'+i+'_stress', type:'vec3' });
-
-    		if (this.mask)
-    			this.samplers.push({ id:this.samplers.length, name:'mask', type:'vec3'});
     		
     		if(this.normals)
-    			this.samplers.push({ id:this.samplers.length, name:'normals', type:'vec3' });
-				this.samplers.push({ id:this.samplers.length, name:'normals_blur', type:'vec3' });
-
-			if (this.stress)
-				this.samplers.push({ id:this.samplers.length, name:'stress', type:'vec3' });
-
-			if (this.albedo)
-				this.samplers.push({ id:this.samplers.length, name:'albedo', type:'vec3' });
+    			this.samplers.push({ id:this.njpegs, name:'normals', type:'vec3' });
 
     		this.material = this.materials[0];
 
@@ -8742,11 +8655,10 @@ void main() {
     			base2: { type: 'vec3', needsUpdate: false, size: this.nplanes }
     		};
 
-    		let base = this.lightWeights([0, 0, 1]);
-    		this.setUniform('base', base);
+    		this.lightWeights([0, 0, 1], 'base');
     	}
 
-    	lightWeights(light) {
+    	lightWeights(light, basename, time) {
     		let value;
     		switch(this.type) {
     			case 'ptm': value = PTM.lightWeights(light); break;
@@ -8755,7 +8667,7 @@ void main() {
     			case 'rbf': value = RBF.lightWeights(light, this); break;
     			case 'bln': value = BLN.lightWeights(light, this); break;
     		}
-    		return value;
+    		this.setUniform(basename, value, time);
     	}
 
     	baseLightOffset(p, l, k) {
@@ -8809,31 +8721,15 @@ uniform ${basetype} base1[np1];
 uniform ${basetype} base2[np1];
 `;
 
-			if (this.normals)
-				str += `
-uniform sampler2D normals;
-uniform sampler2D normals_blur;			
-`;
-
-			if (this.stress)
-				str += `
-uniform sampler2D stress;
-`;
-
-			if (this.albedo)
-				str += `
-uniform sampler2D albedo;
-`;
-
     		for(let n = 0; n < this.njpegs; n++) 
     			str += `
 uniform sampler2D plane${n};
 `;
 
-// 			for(let n = 0; n < this.njpegs; n++) 
-// 	str += `
-// uniform sampler2D plane${n}_stress;
-// `;
+    		if(this.normals)
+    			str += `
+uniform sampler2D normals;
+`;
 
     		if(this.colorspace == 'mycc')
     			str +=
@@ -8844,22 +8740,20 @@ const int ny1 = ${this.yccplanes[1]};
 `;
 
     		switch(this.colorspace) {
-    			case 'lrgb':  str += LRGB.render(this.njpegs, gl2, this); break;
-    			case 'rgb' :  str +=  RGB.render(this.njpegs, gl2, this); break;
+    			case 'lrgb':  str += LRGB.render(this.njpegs, gl2); break;
+    			case 'rgb' :  str +=  RGB.render(this.njpegs, gl2); break;
     			case 'mrgb':  str += MRGB.render(this.njpegs, gl2); break;
     			case 'mycc':  str += MYCC.render(this.njpegs, this.yccplanes[0], gl2); break;
     		}
 
-
-
     		str += `
 
-vec4 data(vec2 v_texcoord) {
+vec4 data() {
 
 `;
-    		if(this.mode == 'color' || this.mode == 'stress') {
+    		if(this.mode == 'light') {
     			str += `
-	vec4 color = render(base, v_texcoord);
+	vec4 color = render(base);
 `;
     		} else  {
     			str += `
@@ -8867,38 +8761,35 @@ vec4 data(vec2 v_texcoord) {
 `;
     			if(this.normals)
     				str += `
-	// vec3 normal = (texture${gl2?'':'2D'}(normals, v_texcoord).zyx *2.0) - 1.0;
-	// normal.z = sqrt(1.0 - normal.x*normal.x - normal.y*normal.y);
-	vec3 normal = texture${gl2?'':'2D'}(normals, v_texcoord).xyz * 2.0 - 1.0;
+	vec3 normal = (texture${gl2?'':'2D'}(normals, v_texcoord).zyx *2.0) - 1.0;
+	normal.z = sqrt(1.0 - normal.x*normal.x - normal.y*normal.y);
 `;
     			else
     				str += `
 	vec3 normal;
-	normal.x = dot(render(base, v_texcoord).xyz, vec3(1));
-	normal.y = dot(render(base1, v_texcoord).xyz, vec3(1));
-	normal.z = dot(render(base2, v_texcoord).xyz, vec3(1));
+	normal.x = dot(render(base ).xyz, vec3(1));
+	normal.y = dot(render(base1).xyz, vec3(1));
+	normal.z = dot(render(base2).xyz, vec3(1));
 	normal = normalize(T * normal);
 `; 
     			switch(this.mode) {
     			case 'normals':  str += `
 	normal = (normal + 1.0)/2.0;
-	color = vec4(normal.xyz, 1);
+	color = vec4(0.0, normal.xy, 1);
 `;
     			break;
 
     			case 'diffuse': 
-    			if(this.colorspace == 'lrgb' || this.colorspace == 'rgb') {
+    			if(this.colorspace == 'lrgb' || this.colorspace == 'rgb')
     				str += `
 vec4 diffuse = texture${gl2?'':'2D'}(plane0, v_texcoord);
 float s = dot(light, normal);
 color = vec4(s * diffuse.xyz, 1);
-`;	
-    			}
-    			else {
+`;
+    			else
     				str += `
 color = vec4(vec3(dot(light, normal)), 1);
 `;
-    			}
     			break;
 
     			case 'specular': 
@@ -8911,86 +8802,17 @@ color = vec4(vec3(dot(light, normal)), 1);
     			}
     		}
 
-			str += `
-	vec3 second_light;
-	vec4 second_color;
-	vec3 second_base[np1];	
-`;
-    		if (this['mirror']) {
-
-				if (this.mode == 'specular')
-					str += `
-	second_light = vec3(-light.xy,light.z);
-	s = pow(dot(second_light, normal), specular_exp);
-	second_color = vec4(s, s, s, 1.0);	
-	color = color * 0.5 + second_color * 0.5;			
-`;
-				else
-    				str += `
-	second_light = vec3(-light.xy,light.z);
-	second_base[0] = vec3(1);
-	second_base[1] = vec3(second_light.x);
-	second_base[2] = vec3(second_light.y);
-	second_base[3] = vec3(second_light.x * second_light.x);
-	second_base[4] = vec3(second_light.x * second_light.y);
-	second_base[5] = vec3(second_light.y * second_light.y);
-	second_color = render(second_base, v_texcoord);
-	color = color * 0.5 + second_color * 0.5;
-`;
-		}
-    		if (this['azimuth']) {
-
-				if (this.mode == 'specular')
-					str += `
-	second_light = vec3(0,0,1);
-	s = pow(dot(second_light, normal), specular_exp);
-	second_color = vec4(s, s, s, 1.0);	
-	color = color * 0.5 + second_color * 0.5;			
-`;
-				else
-    				str += `
-	second_light = vec3(0,0,1);
-	second_base[0] = vec3(1);
-	second_base[1] = vec3(second_light.x);
-	second_base[2] = vec3(second_light.y);
-	second_base[3] = vec3(second_light.x * second_light.x);
-	second_base[4] = vec3(second_light.x * second_light.y);
-	second_base[5] = vec3(second_light.y * second_light.y);
-	second_color = render(second_base, v_texcoord);
-	color = color * 0.5 + second_color * 0.5;		
-`;
-			}
-    		if (this['contrast'])
-    			str += `
-	color.rgb = (color.rgb - ${this['contrast_min']}) / (${this['contrast_max']} - ${this['contrast_min']});
-    `;
-			if (this['gamma_correction'])
-				str += `
-	color.rgb = pow(color.rgb,vec3(1.0/${this['gamma']}));
-`;
-
-			if (this['sigmoid'])
-				str += `
-	color.rgb = exp(color.rgb/${this['sigmoid_value']}) / (1.0 + exp(color.rgb/${this['sigmoid_value']}));
-`;
-
-			if (this.albedo == true && this.mode == 'stress')
-				str += `
-	color = color - texture(albedo, v_texcoord) + texture(stress, v_texcoord);
-`;
-    		str += `
-	return color;
-}
-`;
+    		str += `return color;
+}`;
     		return str;
     	}
     }
 
 
     class LRGB {
-    	static render(njpegs, gl2, shader) {
+    	static render(njpegs, gl2) {
     		let str = `
-vec4 render(vec3 base[np1], vec2 v_texcoord) {
+vec4 render(vec3 base[np1]) {
 	float l = 0.0;
 `;
     		for(let j = 1, k = 0; j < njpegs; j++, k+=3) {
@@ -9003,20 +8825,10 @@ vec4 render(vec3 base[np1], vec2 v_texcoord) {
 	}
 `;
     		}
-
-			if (shader.mode == 'stress')
-    			str += `
-	vec3 basecolor = (texture${gl2?'':'2D'}(stress, v_texcoord).xyz - bias[0])*scale[0];
+    		str += `
+	vec3 basecolor = (texture${gl2?'':'2D'}(plane0, v_texcoord).xyz - bias[0])*scale[0];
 
 	return l*vec4(basecolor, 1);
-}
-`;
-
-			else
-				str += `
-vec3 basecolor = (texture${gl2?'':'2D'}(plane0, v_texcoord).xyz - bias[0])*scale[0];
-
-return l*vec4(basecolor, 1);
 }
 `;
     		return str;
@@ -9025,24 +8837,15 @@ return l*vec4(basecolor, 1);
 
 
     class RGB {
-    	static render(njpegs, gl2, shader) {
+    	static render(njpegs, gl2) {
     		let str = `
-vec4 render(vec3 base[np1], vec2 v_texcoord) {
+vec4 render(vec3 base[np1]) {
 	vec4 rgb = vec4(0, 0, 0, 1);`;
 
     		for(let j = 0; j < njpegs; j++) {
-    			if (j == 0 && shader.mode == 'stress')
-    				str += `
-	{
-		vec4 c = texture${gl2?'':'2D'}(stress, v_texcoord);				
-`;
-    			else
-    				str += `
-	{
-		vec4 c = texture${gl2?'':'2D'}(plane${j}, v_texcoord);			
-`;
     			str += `
-		// vec4 c = texture${gl2?'':'2D'}(plane${j}, v_texcoord);
+	{
+		vec4 c = texture${gl2?'':'2D'}(plane${j}, v_texcoord);
 		rgb.x += base[${j}].x*(c.x - bias[${j}].x)*scale[${j}].x;
 		rgb.y += base[${j}].y*(c.y - bias[${j}].y)*scale[${j}].y;
 		rgb.z += base[${j}].z*(c.z - bias[${j}].z)*scale[${j}].z;
@@ -9060,7 +8863,7 @@ vec4 render(vec3 base[np1], vec2 v_texcoord) {
     class MRGB {
     	static render(njpegs, gl2) {
     		let str = `
-vec4 render(vec3 base[np1], vec2 v_texcoord) {
+vec4 render(vec3 base[np1]) {
 	vec3 rgb = base[0];
 	vec4 c;
 	vec3 r;
@@ -9095,7 +8898,7 @@ vec3 toRgb(vec3 ycc) {
 	return rgb;
 }
 
-vec4 render(vec3 base[np1], vec2 v_texcoord) {
+vec4 render(vec3 base[np1]) {
 	vec3 rgb = base[0];
 	vec4 c;
 	vec3 r;
@@ -9343,12 +9146,12 @@ vec4 render(vec3 base[np1], vec2 v_texcoord) {
     		if(!this.url)
     			throw "Url option is required";
 
-    		this.shaders['rti'] = new ShaderRTI(this.shaderOptions);
+    		this.shaders['rti'] = new ShaderRTI({ normals: this.normals });
     		this.setShader('rti');
 
     		this.addControl('light', [0, 0]);
     		this.worldRotation = 0; //if the canvas or ethe layer rotate, light direction neeeds to be rotated too.
-    		
+
     		this.loadJson(this.url);
     	}
     /*
@@ -9357,8 +9160,7 @@ vec4 render(vec3 base[np1], vec2 v_texcoord) {
     	imageUrl(url, plane) {
     		let path = this.url.substring(0, this.url.lastIndexOf('/')+1);
     		switch(this.layout.type) {
-    			case 'image':    return path + plane + '.jpg';			case 'google':   return path + plane;			case 'deepzoom': return path + plane + '.dzi';			case 'tarzoom':  return path + plane + '.tzi';			case 'itarzoom': return path + 'planes.tzi';			case 'zoomify':  return path + plane + '/ImageProperties.xml';			//case 'iip':      return this.plane.throw Error("Unimplemented");
-    			case 'iiif': throw Error("Unimplemented");
+    			case 'image':    return path + plane + '.jpg';			case 'google':   return path + plane;			case 'deepzoom': return path + plane + '.dzi';			case 'tarzoom':  return path + plane + '.tzi';			case 'itarzoom': return path + 'planes.tzi';			case 'zoomify':  return path + plane + '/ImageProperties.xml';		        case 'iip':      return url;			case 'iiif': throw Error("Unimplemented");
     			default:     throw Error("Unknown layout: " + layout.type);
     		}
     	}
@@ -9374,71 +9176,54 @@ vec4 render(vec3 base[np1], vec2 v_texcoord) {
 
     	loadJson(url) {
     		(async () => {
-    			var response = await fetch(this.url);
+    			let infoUrl = url;
+
+    			// Need to handle embedded RTI info.json when using IIP and TIFF image stacks
+    			if (this.layout.type == "iip") infoUrl = (this.server?this.server+'?FIF=':'') + url + "&obj=description";
+
+    			var response = await fetch(infoUrl);
     			if(!response.ok) {
-    				this.status = "Failed loading " + this.url + ": " + response.statusText;
+    				this.status = "Failed loading " + infoUrl + ": " + response.statusText;
     				return;
     			}
     			let json = await response.json();
+
+    			// Update layout image format and pixelSize if provided in info.json
+    			this.layout.suffix = json.format;
+    			if( json.pixelSizeInMM ) this.pixelSize = json.pixelSizeInMM;
+
     			this.shader.init(json);
-    			let textureUrls = [];
+    			let urls = [];
     			for(let p = 0; p < this.shader.njpegs; p++) {
-    				let url = this.layout.imageUrl(this.url, 'plane_' + p);
-    				textureUrls.push(url);
-    				let raster = new Raster$1({ format: 'vec3'});
+    				let imageUrl = this.layout.imageUrl(url, 'plane_' + p);
+    				urls.push(imageUrl);
+    				let raster = new Raster({ format: 'vec3'});
     				this.rasters.push(raster);
     			}
-
-				// for(let p = 0; p < this.shader.njpegs; p++) {
-    			// 	let url = this.layout.imageUrl(this.url, 'plane_' + p + '_stress');
-    			// 	textureUrls.push(url);
-    			// 	let raster = new Raster$1({ format: 'vec3'});
-    			// 	this.rasters.push(raster);
-    			// }
-
-    			if(this.shader.mask) { 
-    				let url;
-    				if (typeof this.shader.mask === 'string')
-    					url = this.shader.mask;
-    				else
-    					url = this.layout.imageUrl(this.url, 'mask');	
-    				textureUrls.push(url);		
-    			}
-    			
-    			if(this.shader.normals) { // ITARZOOM must include normals and currently has a limitation: loads the entire tile 
-    				textureUrls.push(this.layout.imageUrl(this.url, '../maps/normals'));	
-    				textureUrls.push(this.layout.imageUrl(this.url, '../maps/normals_blur'));		
-    			}	
-
-				if (this.shader.stress)
-					textureUrls.push(this.layout.imageUrl(this.url, '../maps/stress'));
-
-				if (this.shader.albedo)
-					textureUrls.push(this.layout.imageUrl(this.url, '../maps/albedo'));
-
-    			this.layout.setUrls(textureUrls);
-
-    			for (let url of textureUrls) {
-    				let raster = new Raster$1({ format: 'vec3' });
+    			if(this.normals) { // ITARZOOM must include normals and currently has a limitation: loads the entire tile
+    				let imageUrl = this.layout.imageUrl(url, 'normals');
+    				urls.push(imageUrl);
+    				let raster = new Raster({ format: 'vec3'});
     				this.rasters.push(raster);
     			}
+    			this.layout.setUrls(urls);
 
     		})().catch(e => { console.log(e); this.status = e; });
     	}
 
-    	/*
-    	*  Internal function: light control maps to light direction in the shader.
-    	*/
+    /*
+     *  Internal function: light control maps to light direction in the shader.
+     */
     	interpolateControls() {
     		let done = super.interpolateControls();
-    		if (!done) {
+    		if(!done) {
     			let light = this.controls['light'].current.value;
-    			light = this.rotateLight(light);
-    			this.shader.setLight(light);
+    			//this.shader.setLight(light);
+    			let rotated = Transform.rotate(light[0], light[1], this.worldRotation*Math.PI);
+    			this.shader.setLight([rotated.x, rotated.y]);
     		}
     		return done;
     	}
-
     	draw(transform, viewport) {
     		this.worldRotation = transform.a + this.transform.a;
     		return super.draw(transform, viewport);
@@ -9456,32 +9241,14 @@ vec4 render(vec3 base[np1], vec2 v_texcoord) {
     		super({});
 
     		Object.assign(this, {
-    			modes: ['color', 'ambient'],
-    			mode: 'color',
+    			modes: ['light'],
+    			mode: 'light',
 
     			nplanes: null,	 //number of coefficient planes
 
     			scale: null,	  //factor and bias are used to dequantize coefficient planes.
     			bias: null,
 
-				//////////////////////////////////////////////////
-    			numLights: 1,
-
-				unsharp_factor: '10.0',
-				unsharp_radius: '5.0',
-				unsharp_sigma: '0.5',
-				unsharp_color: false,
-				unsharp_normals: false,
-
-				sigmoid: false,
-				sigmoid_value: '0.3',
-
-				contrast: false,
-				contrast_max: '1.0',
-				contrast_min: '0.0',
-
-				gamma_correction: false,
-				gamma: '2.2',
     		});
     		Object.assign(this, options);
 
@@ -9490,12 +9257,6 @@ vec4 render(vec3 base[np1], vec2 v_texcoord) {
     			{ id:2, name:'u_texture_2', type:'vec3' },
     			{ id:3, name:'u_texture_3', type:'vec3' }
     		];
-    		if(this.normals)
-    			this.samplers.push({ id:this.samplers.length+1, name:'normals', type:'vec3' });
-    		if(this.albedo)
-    			this.samplers.push({ id:this.samplers.length+1, name:'albedo', type:'vec3' });
-    		if(this.mask)
-    			this.samplers.push({ id:this.samplers.length+1, name:'mask', type:'vec3' });
 
     		this.uniforms = {
     			lights: { type: 'vec2', needsUpdate: true, size: 2, value: [0.0, 0.0] },
@@ -9507,7 +9268,6 @@ vec4 render(vec3 base[np1], vec2 v_texcoord) {
     			layer2_biases:  { type: 'vec4', needsUpdate: true, size: this.n/4},
     			layer3_weights: { type: 'vec4', needsUpdate: true, size: this.n*3/4},
     			layer3_biases:  { type: 'vec3', needsUpdate: true, size: 1},
-    			light_intensity: { type: 'float', needsUpdate: false, size: 1, value: 0.5 },
     		};
     	}
 
@@ -9545,7 +9305,7 @@ void main() {
 }`;
     	}
     	fragShaderSrc(gl) {
-    		let str =  `
+    		return `
 vec4 inputs[${this.c/4}];    // 12/4
 vec4 output1[${this.n/4}];  // 52/4
 vec4 output2[${this.n/4}];  // 52/4
@@ -9556,7 +9316,6 @@ uniform sampler2D u_texture_1;
 uniform sampler2D u_texture_2;
 uniform sampler2D u_texture_3;
 uniform vec2 lights;
-uniform float light_intensity;
 
 uniform vec4 layer1_weights[${this.c*this.n/4}]; // 12*52/4
 uniform vec4 layer1_biases[${this.n/4}];  // 52/4
@@ -9571,20 +9330,9 @@ uniform vec3 max[${this.planes/3}];
 float elu(float a){
 	return (a > 0.0) ? a : (exp(a) - 1.0);
 }
-`;
 
-    		if (this.albedo)
-    			str += `
-uniform sampler2D albedo;
-`;
 
-    		if (this.normals)
-    			str += `
-uniform sampler2D normals;
-`;
-
-    		str += `
-vec4 relightCoeff(vec3 color_1, vec3 color_2, vec3 color_3, vec2 lights) {
+vec4 relightCoeff(vec3 color_1, vec3 color_2, vec3 color_3) {
 	// Rescaling features
     color_1 = color_1 * (max[0] - min[0]) + min[0];
     color_2 = color_2 * (max[1] - min[1]) + min[1];
@@ -9625,63 +9373,18 @@ vec4 relightCoeff(vec3 color_1, vec3 color_2, vec3 color_3, vec2 lights) {
 	}
 	return vec4(output3.${this.colorspace}, 1.0);
 }
-`;
 
-    		str += `
-vec4 render(vec2 lights, vec2 v_texcoord) {
-	vec3 color_1 = texture(u_texture_1, v_texcoord).${this.colorspace};
-	vec3 color_2 = texture(u_texture_2, v_texcoord).${this.colorspace};
-	vec3 color_3 = texture(u_texture_3, v_texcoord).${this.colorspace};
-	return relightCoeff(color_1, color_2, color_3, lights);
+vec4 relight(vec2 v) {
+	vec3 color_1 = texture(u_texture_1, v).${this.colorspace};
+	vec3 color_2 = texture(u_texture_2, v).${this.colorspace};
+	vec3 color_3 = texture(u_texture_3, v).${this.colorspace};
+	return relightCoeff(color_1, color_2, color_3);
 }
-`;
-
-    		str += `
-vec4 data(vec2 v_texcoord) {
-	vec4 color;
-`;
 
 
-    		str += `
-	color = render(lights, v_texcoord);
-`;
-
-    		if (this.mode == 'ambient')
-    			str += `
-	vec4 albedo_pixel = texture(albedo, v_texcoord);
-	color = render(lights, v_texcoord) * light_intensity + albedo_pixel * (1.0 - light_intensity);
-
-`;
-
-    		if (this['mirror'])
-    			str += `
-	vec4 color2 = render(vec2(-lights.x,-lights.y), v_texcoord);
-	color = color * 0.5 + color2 * 0.5;
-`;
-    		if (this['azimuth'])
-    			str += `
-	color = color * 0.5 + render(vec2(0,0), v_texcoord) * 0.5;		
-`;
-    		if (this['contrast'])
-    			str += `
-    // color = color * 2.0 - 1.0;
-	color.rgb = (color.rgb - ${this['contrast_min']}) / (${this['contrast_max']} - ${this['contrast_min']});
-    `;
-			if (this['gamma_correction'])
-				str += `
-	color.rgb = pow(color.rgb,vec3(1.0/${this['gamma']}));
-`;
-
-			if (this['sigmoid'])
-				str += `
-	color.rgb = exp(color.rgb/${this['sigmoid_value']}) / (1.0 + exp(color.rgb/${this['sigmoid_value']}));
-`;
-    		str += `
-	return color;
+vec4 data() {
+	return relight(v_texcoord);
 }
-`;
-
-    		str += `
 vec4 data1() {
 	vec2 uv = v_texcoord;
 	bool showDiff = false;
@@ -9705,14 +9408,14 @@ vec4 data1() {
 	for(float y = 0.0; y <= step; y = y + step) {
 		for(float x = 0.0; x <= step; x = x + step) {
 			vec2 d = o + vec2(x, y);
-			a += 0.25*render(lights, d);
+			a += 0.25*relight(d);
 
 			color_1 += texture(u_texture_1, d).${this.colorspace};
 			color_2 += texture(u_texture_2, d).${this.colorspace};
 			color_3 += texture(u_texture_3, d).${this.colorspace};
 		}
 	}
-	vec4 b = relightCoeff(0.25*color_1, 0.25*color_2, 0.25*color_3, lights);
+	vec4 b = relightCoeff(0.25*color_1, 0.25*color_2, 0.25*color_3);
 	float diff = 255.0*length((a - b).xyz);
 	if(showDiff) {
 		if(diff < 10.0) {
@@ -9728,15 +9431,10 @@ vec4 data1() {
 		return a;
 	return b;
 }
-`;
 
-    		return str;
+		`;
     	}
 
-
-    	setLightIntensity(value) {
-    		this.setUniform('light_intensity', value);
-    	}
     }
 
     class LayerNeuralRTI extends Layer {
@@ -9749,107 +9447,39 @@ vec4 data1() {
     		this.addControl('light', [0, 0]);
     		this.worldRotation = 0; //if the canvas or ethe layer rotate, light direction neeeds to be rotated too.
 
-
-
-    		// set shaders
-    		this.neuralShader = new ShaderNeural(this.shaderOptions);
-    		
-    		this.imageShader = new Shader({
-    			'label': 'Rgb',
-    			'samplers': [{ id: 0, name: 'kd', type: 'vec3', load: false }],
-    		});
-
-    	// 	this.imageShader['modes'] = ['light', 'colore prova'];
-
-    	// 	this.imageShader.fragShaderSrc = (gl) => {
-    	// 		let gl2 = !(gl instanceof WebGLRenderingContext);
-    	
-    	// 		let str;
-
-    	// 		str = `
-    	
-    	// uniform sampler2D kd;
-    	// ${gl2? 'in' : 'varying'} vec2 v_texcoord;
-    	
-    	// vec4 data(vec2 v_texcoord) {
-    	// 		`;
-    	// 		if (this.imageShader.mode == 'light')
-    	// 			str += `return texture${gl2?'':'2D'}(kd, v_texcoord);
-    	// 	}
-    	// 		`;
-    	// 		if (this.imageShader.mode == 'colore prova')
-    	// 			str += ` return vec4(1.0,1.0,0.0,1.0);
-
-    	// }
-    	// `;
-    	
-    	// 		return str;
-    	// 	}
-
-    	// 	this.imageShader.setMode('light');
-
-    		this.shaders = { 'standard': this.imageShader, 'neural': this.neuralShader };
-    		this.setShader('neural');
-    		this.neuralShader.setLight([0, 0]);
+    		// ********
+    		this.fps_container = [];
+    		this.fps_iter_skip = 0;
 
     		let textureUrls = [
-    			this.layout.imageUrl(this.url, 'plane_0'),
+    			null,
     			this.layout.imageUrl(this.url, 'plane_0'),
     			this.layout.imageUrl(this.url, 'plane_1'),
     			this.layout.imageUrl(this.url, 'plane_2'),
     		];
 
-    		if(this.shader.normals) { // ITARZOOM must include normals and currently has a limitation: loads the entire tile 
-    			let url;
-    			if (typeof this.shader.normals === 'string')
-    				url = this.shader.normals;
-    			else
-    				url = this.layout.imageUrl(this.url, 'normals');
-    			textureUrls.push(url);			
-    		}	
-    		if(this.shader.albedo) { // ITARZOOM must include normals and currently has a limitation: loads the entire tile 
-    			let url;
-    			if (typeof this.shader.albedo === 'string')
-    				url = this.shader.albedo;
-    			else
-    				url = this.layout.imageUrl(this.url, 'albedo');	
-    			textureUrls.push(url);
-    		}	
-    		if(this.shader.mask) { // ITARZOOM must include normals and currently has a limitation: loads the entire tile 
-    			let url;
-    			if (typeof this.shader.mask === 'string')
-    				url = this.shader.mask;
-    			else
-    				url = this.layout.imageUrl(this.url, 'mask');	
-    			textureUrls.push(url);		
-    		}			
-
     		this.layout.setUrls(textureUrls);
 
     		for (let url of textureUrls) {
-    			let raster = new Raster$1({ format: 'vec3' });
+    			let raster = new Raster({ format: 'vec3' });
     			this.rasters.push(raster);
     		}
 
+    		this.imageShader = new Shader({
+    			'label': 'Rgb',
+    			'samplers': [{ id: 0, name: 'kd', type: 'vec3', load: false }]
+    		});
+
+
+
+    		this.neuralShader = new ShaderNeural();
+
+    		this.shaders = { 'standard': this.imageShader, 'neural': this.neuralShader };
+    		this.setShader('neural');
+    		this.neuralShader.setLight([0, 0]);
+
+
     		(async () => { await this.loadNeural(this.url); })();
-    	}
-
-    	setMode(mode) {
-    		this.neuralShader.setMode(mode);
-    		this.forceRelight();
-    		this.emit('update');
-    	};
-
-    	getModes() {
-    		if (this.neuralShader)
-    			return this.neuralShader.modes;
-    		return [];
-    	}
-
-    	getMode() {
-    		if (this.neuralShader)
-    			return this.neuralShader.mode;
-    		return null;
     	}
 
     	setLight(light, dt) {
@@ -9932,9 +9562,10 @@ vec4 data1() {
 
     		this.worldRotation = transform.a + this.transform.a;
 
-    		this.shader = this.neuralShader;
-
     		if (this.networkParameters !== undefined) {
+
+    			// ********
+    			this.canvas.targetfps = 0;
 
     			let previousRelightFraction = this.relightFraction;
     			//adjust maxTiles to presserve framerate only when we had a draw which included relighting (but not a refine operation!).
@@ -9965,7 +9596,17 @@ vec4 data1() {
     			let w = Math.round((this.layout.tilesize || this.layout.width) * this.relightFraction);
     			let h = Math.round((this.layout.tilesize || this.layout.height) * this.relightFraction);
 
-    			//console.log("Canvas fps: ", this.canvas.fps, "relighted: ", this.relighted, "Refine? ", this.refine, " fraction: ", this.relightFraction, " w: ", this.tileRelightWidth);
+    			// console.log("Canvas fps: ", this.canvas.fps, "relighted: ", this.relighted, "Refine? ", this.refine, " fraction: ", this.relightFraction, " w: ", this.tileRelightWidth);
+    			// ********
+    			if (this.canvas.fps <= 60.0)
+    				this.fps_container.push(this.canvas.fps);
+    			// const sum = this.fps_container.reduce((a, b) => a + b, 0);
+    			// const avg = (sum / this.fps_container.length) || 0;
+    			// console.log('FPS - avg: ', avg, ' max: ', Math.max(...this.fps_container), ' min: ', Math.min(...this.fps_container));
+    			// console.log(this.fps_container.length);
+    			console.log('FPS rilevati ', this.fps_container);
+
+
     			this.refine = false;
 
     			let available = this.layout.available(viewport, transform, this.transform, 0, this.mipmapBias, this.tiles);
@@ -9974,14 +9615,16 @@ vec4 data1() {
     			if (tiles.length == 0)
     				return;
     			if (sizeChanged)
-    				this.forceRelight();
+    				for (let tile of tiles)
+    					tile.neuralUpdated = false;
 
     			this.relighted = false;
     			this.totTiles = 0;
     			this.totPixels = 0;
     			for (let tile of tiles) {
-    				if (tile.neuralUpdated && !sizeChanged)
-    					continue;
+    				// ********
+    				// if (tile.neuralUpdated && !sizeChanged)
+    				// 	continue;
     				if (!this.relighted) {
     					this.relighted = true; //update fps next turn.
     					this.preRelight([viewport.x, viewport.y, viewport.dx, viewport.dy], w, h, sizeChanged);
@@ -9998,6 +9641,7 @@ vec4 data1() {
 
     		this.shader = this.imageShader;
     		let done = super.draw(transform, viewport);
+    		this.shader = this.neuralShader;
 
     		return done;
     	}
@@ -10005,7 +9649,7 @@ vec4 data1() {
     	preRelight(viewport, w, h) {
     		let gl = this.gl;
 
-    		if (!this.neuralShader.program || this.neuralShader.needsUpdate) {
+    		if (!this.neuralShader.program) {
     			this.neuralShader.createProgram(gl);
     			gl.useProgram(this.neuralShader.program);
     			for (var i = 0; i < this.neuralShader.samplers.length; i++)
@@ -10089,31 +9733,14 @@ vec4 data1() {
     			return true;
 
     		let light = this.controls['light'].current.value;
-    		console.log(light);
     		let rotated = Transform.rotate(light[0], light[1], this.worldRotation * Math.PI);
     		light = [rotated.x, rotated.y];
-    		console.log(this.transform);
     		this.neuralShader.setLight(light);
 
 
-    		this.forceRelight();
-    		return false;
-    	}
-
-    	interpolateControls() {
-    		let done = super.interpolateControls();
-    		if (!done) {
-    			let light = this.controls['light'].current.value;
-    			light = this.rotateLight(light);
-    			this.neuralShader.setLight(light);
-    			this.forceRelight();
-    		}
-    		return done;
-    	}
-
-    	forceRelight() {
     		for (let [id, tile] of this.tiles)
     			tile.neuralUpdated = false;
+    		return false;
     	}
     }
 
@@ -10352,7 +9979,7 @@ vec4 data() {
     			gloss: { format: 'float', name: 'uTexGloss' }
     		};
     		for (let c in this.channels) {
-    			this.rasters.push(new Raster$1({ format: brdfSamplersMap[c].format }));
+    			this.rasters.push(new Raster({ format: brdfSamplersMap[c].format }));
     			samplers.push({ 'id': id, 'name': brdfSamplersMap[c].name });
     			urls[id] = this.channels[c];
     			id++;
@@ -10430,406 +10057,6 @@ vec4 data() {
 
 
     Layer.prototype.types['brdf'] = (options) => { return new LayerBRDF(options); };
-
-    /**
-     * Extends {@link Shader}, initialized with a Neural .json (
-    **/
-     
-    class ShaderBRDFIkehata extends Shader {
-    	constructor(options) {
-    		super({});
-
-    		Object.assign(this, {
-    			modes: ['color', 'stress', 'monochrome'],
-    			mode: 'color',
-
-    			nplanes: null,	 //number of coefficient planes
-
-    			scale: null,	  //factor and bias are used to dequantize coefficient planes.
-    			bias: null,
-    			
-
-				////////////////////////////////////////////////////////
-    			numLights: 1,
-
-				unsharp_factor: '1.0',
-				unsharp_radius: '3.0',
-				unsharp_sigma: '0.5',
-				unsharp_masking: false,
-				unsharp_color: false,
-				unsharp_normals: false,
-
-				sigmoid: false,
-				sigmoid_value: '0.3',
-
-				contrast: false,
-				contrast_max: '1.0',
-				contrast_min: '0.0',
-
-				gamma_correction: false,
-				gamma: '2.2',
-
-				specular_factor: '1.0',
-    		});
-    		Object.assign(this, options);
-
-            this.ikehata_maps = [
-    			'base',
-    			'metallic',
-    			'roughness',
-    			// 'cavity',
-    			// 'curvature',
-    			// 'stress_color',
-    			// 'stress_normals',
-    		];
-
-    		this.samplers = [];
-            for (let i = 0; i < this.ikehata_maps.length; i++)
-                this.samplers.push({ id:i, name:this.ikehata_maps[i], type:'vec3' });
-
-			this.samplers.push({ id:this.samplers.length, name:'normals', type:'vec3' });
-			if (this.normals)
-				this.samplers.push({ id:this.samplers.length, name:'normals_blur', type:'vec3' });
-			if (this.stress)
-				this.samplers.push({ id:this.samplers.length, name:'stress', type:'vec3' });
-
-            if (this.mask)
-                this.samplers.push({ id:this.samplers.length, name:'mask', type:'vec3' });
-
-    		this.uniforms = {
-    			light: { type: 'vec3', needsUpdate: true, size: 3, value: [0, 0, 1] },
-    		};
-
-    		this.setMode(this.mode);
-
-    	}
-
-    	setLight(light) {
-    		let x = light[0];
-    		let y = light[1];
-    		let z = Math.sqrt(Math.max(0, 1 - x*x - y*y));
-    		light = [x, y, z];
-    		this.setUniform('light', light);
-    	}
-
-		unsharpMasking(gl2, radius, factor, sigma) {
-
-			// radius = 
-
-			let str = `
-float gaussian_2D(float x, float y, float s){
-	float PI = 3.141529;
-	return exp(-(x*x+y*y)/(2.0*s*s)) / (2.0*PI*s*s);
-}
-vec4 unsharp_masking(sampler2D tex){
-				
-	float dx = 1.0/tileSize.x;
-	float dy = 1.0/tileSize.y;
-
-	vec3 tex_color = texture${gl2?'':'2D'}(tex, v_texcoord).rgb;
-	vec3 unsharp_tex = vec3(0);
-
-	for (float i = -${Math.floor(radius/2)}.0; i < ${Math.ceil(radius/2)}.0; i++)
-		for (float j = -${Math.floor(radius/2)}.0; j < ${Math.ceil(radius/2)}.0; j++)
-			unsharp_tex += texture${gl2?'':'2D'}(tex, v_texcoord + vec2(i*dx,j*dy)).rgb; // * gaussian_2D(i,j,${sigma});
-
-	unsharp_tex /= ${Math.round(radius*radius)}.0;
-	return vec4(tex_color + (tex_color - unsharp_tex) * ${factor}, 1.0);
-}
-
-vec4 unsharp_masking2(sampler2D tex) {
-	mat3 unsharp_M = mat3(1.0/9.0);
-
-	float dx = 1.0/tileSize.x;
-	float dy = 1.0/tileSize.y;
-
-	vec3 tex_color = texture${gl2?'':'2D'}(tex, v_texcoord).rgb;
-	vec3 unsharp_tex = vec3(0);
-
-	unsharp_tex += unsharp_M[0][0] * texture${gl2?'':'2D'}(tex,vec2(v_texcoord.x-dx,v_texcoord.y-dy)).rgb + 
-				unsharp_M[0][1] * texture${gl2?'':'2D'}(tex,vec2(v_texcoord.x-dx,v_texcoord.y)).rgb +
-				unsharp_M[0][2] * texture${gl2?'':'2D'}(tex,vec2(v_texcoord.x-dx,v_texcoord.y+dy)).rgb +
-				unsharp_M[1][0] * texture${gl2?'':'2D'}(tex,vec2(v_texcoord.x,v_texcoord.y-dy)).rgb +
-				unsharp_M[1][1] * tex_color +
-				unsharp_M[1][2] * texture${gl2?'':'2D'}(tex,vec2(v_texcoord.x,v_texcoord.y+dy)).rgb +
-				unsharp_M[2][0] * texture${gl2?'':'2D'}(tex,vec2(v_texcoord.x+dx,v_texcoord.y-dy)).rgb +
-				unsharp_M[2][1] * texture${gl2?'':'2D'}(tex,vec2(v_texcoord.x+dx,v_texcoord.y)).rgb +
-				unsharp_M[2][2] * texture${gl2?'':'2D'}(tex,vec2(v_texcoord.x+dx,v_texcoord.y+dy)).rgb;
-	
-	return vec4(tex_color + (tex_color - unsharp_tex) * ${factor}, 1.0);
-}
-`;
-
-	return str;
-		}
-
-    	fragShaderSrc(gl) {
-            let gl2 = !(gl instanceof WebGLRenderingContext);
-
-    		let brdfReturnedValue;
-    		switch(this.mode) {
-    			case 'color': brdfReturnedValue = 'nl * EMIT * (fd + fr)'; break;
-    			case 'diffuse': brdfReturnedValue = 'EMIT * fd'; break;
-    			case 'specular': brdfReturnedValue = 'EMIT * fr'; break;
-    			case 'normals': brdfReturnedValue = 'normals'; break;
-    			case 'monochrome': brdfReturnedValue = 'vec3(nl)'; break;
-    			default: brdfReturnedValue = 'nl * EMIT * (fd + fr)'; break;
-    		}
-
-    		let BRDFIkehata = `
-	vec3 B = texture${gl2?'':'2D'}(${this.mode=='stress'?'stress':'base'},v_texcoord).rgb;
-	vec3 N = texture${gl2?'':'2D'}(${this.stress_normals?'stress_normals':'normals'}, v_texcoord).rgb;
-	float M = texture${gl2?'':'2D'}(metallic, v_texcoord)[0];
-	float R = texture${gl2?'':'2D'}(roughness, v_texcoord)[0];
-
-	// M = 1.0 - M;
-	R = 1.0 - R;
-	M = 0.0;
-	R = 0.0;
-
-	${this['unsharp_masking'] && this['unsharp_color'] ? 'B = unsharp_masking(base).rgb;' : ''}
-	${this['unsharp_masking'] && this['unsharp_normals'] ? 'N = unsharp_masking(normals).rgb;' : ''}
-
-	// N.xy = 1.0 - N.xy;
-
-	N = N * 2.0 - 1.0;
-	N = normalize(N);
-
-	float EMIT = 4.0;
-	float SPECULAR = 1.0;
-	float PI = 3.1415926535;
-	vec3 V = vec3(0, 0, 1);
-	vec3 L = light;
-
-	// Experimental the angle between l and v should always be fixed
-	vec3 hf = 0.5 * (L + V);
-	hf = normalize(hf);
-	float nl = dot(N, L);
-	float nv = dot(N, V);
-	float nh = dot(N, hf);
-	float lh = dot(L, hf);
-
-	// Diffuse
-	float FD90 = 0.5 + 2.0 * (lh * R);
-	float FD = ( 1.0 + (FD90 - 1.0) * (1.0 - nl) * (1.0 - nl) * (1.0 - nl) * (1.0 - nl) * (1.0 - nl) ) * ( 1.0 + (FD90 - 1.0) * (1.0 - nv) * (1.0 - nv) * (1.0 - nv) * (1.0 - nv) * (1.0 - nv) );
-
-	// GGX Specular
-	vec3 Cspec0 = 0.08 * SPECULAR * (1.0 - M) + B * M;
-	// Specular Fs
-	vec3 Fs = Cspec0 + (1.0 - Cspec0) * (1.0 - lh) * (1.0 - lh) * (1.0 - lh) * (1.0 - lh) * (1.0 - lh);
-
-	// Specular Gs
-	float a = min(max(1.0e-6, R * R), 1.0);
-	float Gs_L = 1.0 / ( nl + sqrt(a * a + (1.0 - a * a) * nl * nl) + 1.0e-12);
-	float Gs_V = 1.0 / ( nv + sqrt(a * a + (1.0 - a * a) * nv * nv) + 1.0e-12);
-	float Gs = Gs_L * Gs_V;
-
-	// Specular Ds
-	float Ds = a * a / (PI * (1.0 + (a * a - 1.0) * nh * nh) * (1.0 + (a * a - 1.0) * nh * nh) + 1.0e-12);
-
-	vec3 fd = FD * B * (1.0 - M) / PI;
-	vec3 fr = Gs * Fs * Ds;
-
-	fr *= ${this.specular_factor};
-
-	return ${brdfReturnedValue};		
-`;
-
-    		let relightMap = `
-	vec3 N = texture${gl2?'':'2D'}(${this.stress_normals?'stress_normals':'normals'}, v_texcoord).rgb;
-	// vec3 M = texture${gl2?'':'2D'}(curvature, v_texcoord).rgb;
-	vec3 L = light;
-
-	${this['unsharp_masking'] && this['unsharp_normals'] ? 'N = unsharp_masking(normals).rgb;' : ''}
-
-	N = N * 2.0 - 1.0;
-	N = normalize(N);
-	// M = 1.0 - M;
-	float nl = dot(N, L);
-	// return nl * M;
-	return vec3(nl);
-`;
-
-    		let renderContent;
-    		switch(this.mode) {
-    			case 'cavity':
-    			case 'monochrome + AO':
-    			case 'normals':
-    				renderContent = relightMap;
-    				break;
-    			default:
-    				renderContent = BRDFIkehata;
-    				break;
-    		}
-
-			let unsharpMaskingString = this.unsharpMasking(gl2, this.unsharp_radius, this.unsharp_factor, this.unsharp_sigma);
-
-            let str = '';
-
-			if (this.normals)
-				str += `
-uniform sampler2D normals_blur;			
-`;
-			if (this.stress)
-				str += `
-uniform sampler2D stress;			
-`;
-
-            str += `
-uniform sampler2D normals;
-uniform sampler2D base;
-uniform sampler2D metallic;
-uniform sampler2D roughness;
-// uniform sampler2D cavity;
-// uniform sampler2D curvature;
-// uniform sampler2D stress_normals;
-uniform vec3 light;
-${gl2? 'in' : 'varying'} vec2 v_texcoord;
-
-${unsharpMaskingString}
-
-vec3 render(vec3 light, vec2 v_texcoord) {
-${renderContent}
-}
-
-vec4 data(vec2 v_texcoord) {
-	vec3 color;
-	color = render(light, v_texcoord);
-`;
-    		if (this['mirror'])
-    			str += `
-	vec3 color2 = render(vec3(-light.x,-light.y,light.z), v_texcoord);
-	color = color * 0.5 + color2 * 0.5;
-`;
-    		if (this['azimuth'])
-    			str += `
-	color = color * 0.5 + render(vec3(0,0,1), v_texcoord) * 0.5;		
-`;
-    		if (this['contrast'])
-    			str += `
-    // color = color * 2.0 - 1.0;
-	color = (color - ${this['contrast_min']}) / (${this['contrast_max']} - ${this['contrast_min']});
-    `;
-			if (this['gamma_correction'])
-				str += `
-	color = pow(color,vec3(1.0/${this['gamma']}));
-`;
-
-			if (this['sigmoid'])
-				str += `
-	color = exp(color/${this['sigmoid_value']}) / (1.0 + exp(color/${this['sigmoid_value']}));
-`;
-    		str += `
-	return vec4(color, 1.0);
-}
-`;
-
-    		return str;
-    	}
-
-    }
-
-    /**
-     * The class LayerImage is derived from Layer and it is responsible for the rendering of simple images.
-     * 
-     * @example
-     * // Create an image layer and add it to the canvans
-     * const layer = new OpenLIME.Layer({
-     *     layout: 'image',
-     *     type: 'image',
-     *     url: '../../assets/lime/image/lime.jpg'
-     * });
-     * lime.addLayer('Base', layer);
-     */
-    class LayerBRDFIkehata extends Layer {
-    	/**
-     	* Displays a simple image.
-     	* An object literal with Layer `options` can be specified.
-    	* The class LayerImage can also be instantiated via the Layer parent class and `options.type='image'`.
-     	*
-    	  Extends {@link Layer}.
-     	* @param {Object} options an object literal with Layer options {@link Layer}, but `options.url` and `options.layout` are required.
-     	* @param {string} options.url The URL of the image
-     	* @param {(string|Layout)} options.layout='image' The layout (the format of the input raster images).
-     	*/
-    	constructor(options) {	
-    		super(options);
-
-    		if(Object.keys(this.rasters).length != 0)
-    			throw "Rasters options should be empty!";
-
-			this.ikehata_maps = [
-				'base',
-				'metallic',
-				'roughness',
-			];
-    		this.worldRotation = 0;
-
-    		this.addControl('light', [0, 0]);
-
-    		let shader = new ShaderBRDFIkehata(this.shaderOptions);
-    		this.shaders = {'brdf_ikehata': shader };
-    		this.setShader('brdf_ikehata');
-
-    		// use url for reference, use this.modes for actual urls
-    		let textureUrls = [];
-    		for (let map of this.ikehata_maps)
-    			textureUrls.push(this.layout.imageUrl(this.url, map));
-			
-			if (this.shader.normals){
-				textureUrls.push(this.layout.imageUrl(this.url, '../maps/normals'));
-				textureUrls.push(this.layout.imageUrl(this.url, '../maps/normals_blur'));
-			}
-			else{
-				textureUrls.push(this.layout.imageUrl(this.url, 'normals'));
-			}
-			if (this.shader.stress)
-				textureUrls.push(this.layout.imageUrl(this.url, '../maps/stress'));
-
-    		// if (typeof this.shader.stress === 'string')
-    		// 	textureUrls.push(this.shader.stress);
-    		// else
-    		// 	textureUrls.push(this.layout.imageUrl(this.url, 'stress'));	
-
-    		if(this.shader.mask) { 
-    			let url;
-    			if (typeof this.shader.mask === 'string')
-    				url = this.shader.mask;
-    			else
-    				url = this.layout.imageUrl(this.url, 'mask');	
-    			textureUrls.push(url);		
-    		}
-
-    		this.layout.setUrls(textureUrls);
-
-    		const rasterFormat = this.format != null ? this.format : 'vec4';
-    		for (let url of textureUrls) {
-    			let raster = new Raster$1({ format: rasterFormat }); //FIXME select format for GEO stuff
-    			this.rasters.push(raster);
-    		}
-    	}
-
-    	setLight(light, dt) {
-    		this.setControl('light', light, dt);
-    	}
-
-    	interpolateControls() {
-    		let done = super.interpolateControls();
-    		if (!done) {
-    			let light = this.controls['light'].current.value;
-    			light = this.rotateLight(light);
-    			this.shader.setLight(light);
-    		}
-    		return done;
-    	}
-
-    	draw(transform, viewport) {
-    		this.worldRotation = transform.a + this.transform.a;
-    		return super.draw(transform, viewport);
-    	}
-    }
-
-    Layer.prototype.types['brdf_ikehata'] = (options) => { return new LayerBRDFIkehata(options); };
 
     class ShaderLens extends Shader {
         constructor(options) {
@@ -13528,7 +12755,7 @@ void main() {
     			svgGroup: null,
     			onClick: null,			//callback function
     			classes: {
-    				// '': { stroke: '#000', fill: '' },
+    				'': { stroke: '#000', label: '' },
     			},
     			annotationUpdate: null
     		}, options);
@@ -13556,7 +12783,6 @@ void main() {
     			style.textContent = this.style;
     			root.append(style);
     		}
-    		
     		root.appendChild(this.svgElement);
     	}
     	/*  unused for the moment!!! 
@@ -13946,14 +13172,14 @@ void main() {
      */
 
     /**
-     * **AnnotationEditor** enables the {@link UIBasic} interface to edit (create/update/delete) SVG annotations.
+     * **EditorSvgAnnotation** enables the {@link UIBasic} interface to edit (create/update/delete) SVG annotations.
      * This class is a mere utility that acts as an adapter between the annotation database and the OpenLIME system.
      * 
      * Here you will find a tutorial to learn how to use the SVG annotation editor. //FIXME
      * 
      * For the experienced developer this class can be used as an example to design more complex editors.
      * 
-     * In the following example an **AnnotationEditor** is instatiated and connected to the annotation database
+     * In the following example an **EditorSvgAnnotation** is instatiated and connected to the annotation database
      * through three callbacks implementing database operations (create/update/delete).
      * ``` 
      * // Creates an annotation layer and add it to the canvans
@@ -13961,7 +13187,7 @@ void main() {
      * lime.addLayer('anno', anno);
      *
      * // Creates a SVG annotation Editor
-     * const editor = new OpenLIME.AnnotationEditor(lime, anno, {
+     * const editor = new OpenLIME.EditorSvgAnnotation(lime, anno, {
      *          viewer: lime,
      *          classes: classParam
      * });
@@ -13970,7 +13196,1266 @@ void main() {
      * editor.deleteCallback = (anno) => { console.log("Deleted annotation: ", anno); processRequest(anno, 'delete'); return true; };
      * ```
      */
-    class AnnotationEditor {
+    class EditorSvgAnnotation {
+    	/**
+    	 * Instatiates a EditorSvgAnnotation object.
+    	 * @param {Viewer} viewer The OpenLIME viewer.
+    	 * @param {LayerSvgAnnotation} layer The annotation layer on which to operate.
+    	 * @param {Object} [options] An object literal with SVG editor parameters.
+    	 * @param {AnnotationClasses} options.classes An object literal definying colors and labels of the annotation classes.
+    	 * @param {crudCallback} options.createCallback The callback to implement annotation creation.
+    	 * @param {crudCallback} options.updateCallback The callback to implement annotation update.
+    	 * @param {crudCallback} options.deleteCallback The callback to implement annotation deletion.
+    	 * @param {bool} options.enableState=false Whether to enable custom annotation state. This allows to include some state variables into an annotation item (such as camera, light or lens position).
+    	 * @param {customStateCallback} options.customState The callback implementing custom state annotations.
+    	 * @param {customDataCallback} options.customData The callback to customize the annotation data object.
+    	 * @param {selectedCallback} options.selectedCallback The callback executed when an annotation is selcted on the user interface.
+    	 */
+    	constructor(viewer, layer, options) {
+    		this.layer = layer;
+    		Object.assign(this, {
+    			viewer: viewer,
+    			panning: false,
+    			tool: null, //doing nothing, could: ['line', 'polygon', 'point', 'box', 'circle']
+    			startPoint: null, //starting point for box and  circle
+    			currentLine: [],
+    			annotation: null,
+    			priority: 20000,
+    			classes: {
+    				'': { stroke: '#000', label: '' },
+    				'class1': { stroke: '#770', label: '' },
+    				'class2': { stroke: '#707', label: '' },
+    				'class3': { stroke: '#777', label: '' },
+    				'class4': { stroke: '#070', label: '' },
+    				'class5': { stroke: '#007', label: '' },
+    				'class6': { stroke: '#077', label: '' },
+    			},
+    			tools: {
+    				point: {
+    					img: '<svg width=24 height=24><circle cx=12 cy=12 r=3 fill="red" stroke="gray"/></svg>',
+    					tooltip: 'New point',
+    					tool: Point,
+    				},
+    				pin: {
+    					template: (x,y) => {
+    						return `<svg xmlns='http://www.w3.org/2000/svg' x='${x}' y='${y}' width='4%' height='4%' class='pin'
+						viewBox='0 0 18 18'><path d='M 0,0 C 0,0 4,0 8,0 12,0 16,4 16,8 16,12 12,16 8,16 4,16 0,12 0,8 0,4 0,0 0,0 Z'/><text class='pin-text' x='7' y='8'>${this.annotation.idx}</text></svg>`;
+    					}, //pin di alcazar  1. url a svg 2. txt (stringa con svg) 3. funzione(x,y) ritorna svg 4. dom (da skin).
+    					tooltip: 'New pin',
+    					tool: Pin
+    				},
+    				pen: {
+    					img: '<svg width=24 height=24><circle cx=12 cy=12 r=3 fill="red" stroke="gray"/></svg>',
+    					tooltip: 'New polyline',
+    					tool: Pen,
+    				},
+    				line: {
+    					img: `<svg width=24 height=24>
+						<path d="m 4.7,4.5 c 0.5,4.8 0.8,8.5 3.1,11 2.4,2.6 4.2,-4.8 6.3,-5 2.7,-0.3 5.1,9.3 5.1,9.3" stroke-width="3" fill="none" stroke="grey"/>
+						<path d="m 4.7,4.5 c 0.5,4.8 0.8,8.5 3.1,11 2.4,2.6 4.2,-4.8 6.3,-5 2.7,-0.3 5.1,9.3 5.1,9.3" stroke-width="1" fill="none" stroke="red"/></svg>`,
+    					tooltip: 'New line',
+    					tool: Line,
+    				},
+    				erase: {
+    					img: '',
+    					tooltip: 'Erase lines',
+    					tool: Erase,
+    				},
+    				box: {
+    					img: '<svg width=24 height=24><rect x=5 y=5 width=14 height=14 fill="red" stroke="gray"/></svg>',
+    					tooltip: 'New box',
+    					tool: Box,
+    				},
+    				circle: {
+    					img: '<svg width=24 height=24><circle cx=12 cy=12 r=7 fill="red" stroke="gray"/></svg>',
+    					tooltip: 'New circle',
+    					tool: Circle,
+    				},
+    				/*				colorpick: {
+    									img: '',
+    									tooltip: 'Pick a color',
+    									tool: Colorpick,
+    								} */
+    			},
+    			annotation: null, //not null only when editWidget is shown.
+    			enableState: false,
+    			customState: null,
+    			customData: null,
+    			editWidget: null,
+    			selectedCallback: null,
+    			createCallback: null, //callbacks for backend
+    			updateCallback: null,
+    			deleteCallback: null
+    		}, options);
+    		
+    		layer.style += Object.entries(this.classes).map((g) => {
+    			console.assert(g[1].hasOwnProperty('stroke'), "Classes needs a stroke property");
+    			return `[data-class=${g[0]}] { stroke:${g[1].stroke}; }`;
+    		}).join('\n');
+    		//at the moment is not really possible to unregister the events registered here.
+    		viewer.pointerManager.onEvent(this);
+    		document.addEventListener('keyup', (e) => this.keyUp(e), false);
+    		layer.addEvent('selected', (anno) => {
+    			if (!anno || anno == this.annotation)
+    				return;
+    			if(this.selectedCallback) this.selectedCallback(anno);
+    			this.showEditWidget(anno);
+    		});
+
+    		layer.annotationsEntry = () => {
+
+    			let entry = {
+    				html: `<div class="openlime-tools"></div>`,
+    				list: [], //will be filled later.
+    				classes: 'openlime-annotations',
+    				status: () => 'active',
+    				oncreate: () => {
+    					if (Array.isArray(layer.annotations))
+    						layer.createAnnotationsList();
+
+    					let tools = {
+    						'add': { action: () => { this.createAnnotation(); }, title: "New annotation" },
+    						'edit': { action: () => { this.toggleEditWidget(); }, title: "Edit annotations" },
+    						'export': { action: () => { this.exportAnnotations(); }, title: "Export annotations" },
+    						'trash': { action: () => { this.deleteSelected(); }, title: "Delete selected annotations" },
+    					};
+    					(async () => {
+
+    						for (const [label, tool] of Object.entries(tools)) {
+    							let icon = await Skin.appendIcon(entry.element.firstChild, '.openlime-' + label); // TODO pass entry.element.firstChild as parameter in onCreate
+    							icon.setAttribute('title', tool.title);
+    							icon.addEventListener('click', tool.action);
+    						}
+    					})();
+    				}
+    			};
+    			layer.annotationsListEntry = entry;
+    			return entry;
+    		};
+    	}
+
+    	/** @ignore */
+    	createAnnotation() {
+    		let anno = this.layer.newAnnotation();
+    		if(this.customData) this.customData(anno);
+    		if(this.enableState) this.setAnnotationCurrentState(anno);
+    		anno.idx = this.layer.annotations.length;
+    		anno.publish = 1;
+    		anno.label = anno.description = anno.class = '';
+    		let post = {
+    			id: anno.id, idx: anno.idx, label: anno.label, description: anno.description, 'class': anno.class, svg: null,
+    			publish: anno.publish, data: anno.data
+    		};
+    		if (this.enableState) post = { ...post, state: anno.state };
+    		if (this.createCallback) {
+    			let result = this.createCallback(post);
+    			if (!result)
+    				alert("Failed to create annotation!");
+    		}
+    		this.layer.setSelected(anno);
+    	}
+
+    	/** @ignore */
+    	toggleEditWidget() {
+    		if (this.annotation)
+    			return this.hideEditWidget();
+
+    		let id = this.layer.selected.values().next().value;
+    		if (!id)
+    			return;
+
+    		let anno = this.layer.getAnnotationById(id);
+    		this.showEditWidget(anno);
+    	}
+
+    	/** @ignore */
+    	updateEditWidget() {
+    		let anno = this.annotation;
+    		let edit = this.editWidget;
+    		if (!anno.class)
+    			anno.class = '';
+    		edit.querySelector('[name=label]').value = anno.label || '';
+    		edit.querySelector('[name=description]').value = anno.description || '';
+    		edit.querySelector('[name=idx]').value = anno.idx || '';
+    		Object.entries(anno.data).map(k => {
+    			edit.querySelector(`[name=data-data-${k[0]}]`).value = k[1] || '';
+    		});
+
+    		edit.querySelector('[name=classes]').value = anno.class;
+    		edit.querySelector('[name=publish]').checked = anno.publish == 1;
+    		edit.classList.remove('hidden');
+    		let button = edit.querySelector('.openlime-select-button');
+    		button.textContent = this.classes[anno.class].label;
+    		button.style.background = this.classes[anno.class].stroke;
+    	}
+
+    	/** @ignore */
+    	showEditWidget(anno) {
+    		this.annotation = anno;
+    		this.setTool(null);
+    		this.setActiveTool();
+    		this.layer.annotationsListEntry.element.querySelector('.openlime-edit').classList.add('active');
+    		(async () => {
+    			await this.createEditWidget();
+    			this.updateEditWidget();
+    		})();
+    	}
+
+    	/** @ignore */
+    	hideEditWidget() {
+    		this.annotation = null;
+    		this.setTool(null);
+    		this.editWidget.classList.add('hidden');
+    		this.layer.annotationsListEntry.element.querySelector('.openlime-edit').classList.remove('active');
+    	}
+
+    	//TODO this should actually be in the html.
+    	/** @ignore */
+    	async createEditWidget() {
+    		if (this.editWidget)
+    			return;		
+    		let html = `
+				<div class="openlime-annotation-edit">
+					<label for="label">Title:</label> <input name="label" type="text"><br>
+					<label for="description">Description:</label><br>
+					<textarea name="description" cols="30" rows="5"></textarea><br>
+					<span>Class:</span> 
+					<div class="openlime-select">
+						<input type="hidden" name="classes" value=""/>
+						<div class="openlime-select-button"></div>
+						<ul class="openlime-select-menu">
+						${Object.entries(this.classes).map((c) =>
+			`<li data-class="${c[0]}" style="background:${c[1].stroke};">${c[1].label}</li>`).join('\n')}
+						</ul>
+					</div>
+					<label for="idx">Index:</label> <input name="idx" type="text"><br>	
+					${Object.entries(this.annotation.data).map(k => {
+						let label = k[0];
+						let str = `<label for="data-data-${k[0]}">${label}:</label> <input name="data-data-${k[0]}" type="text"><br>`;
+						return str;
+					}).join('\n')}
+					<br>
+					<span><button class="openlime-state">SAVE</button></span>
+					<span><input type="checkbox" name="publish" value=""> Publish</span><br>
+					<div class="openlime-annotation-edit-tools"></div>
+				</div>`;
+    		let template = document.createElement('template');
+    		template.innerHTML = html.trim();
+    		let edit = template.content.firstChild;
+
+    		let select = edit.querySelector('.openlime-select');
+    		let button = edit.querySelector('.openlime-select-button');
+    		let ul = edit.querySelector('ul');
+    		let options = edit.querySelectorAll('li');
+    		let input = edit.querySelector('[name=classes]');
+
+    		let state = edit.querySelector('.openlime-state');
+    		
+    		state.addEventListener('click', (e) => {
+    			if(this.enableState) this.setAnnotationCurrentState(this.annotation);
+    			this.saveCurrent();
+    			this.saveAnnotation(); 
+    		});
+
+    		button.addEventListener('click', (e) => {
+    			e.stopPropagation();
+    			for (let o of options)
+    				o.classList.remove('selected');
+    			select.classList.toggle('active');
+
+    		});
+
+    		ul.addEventListener('click', (e) => {
+    			e.stopPropagation();
+
+    			input.value = e.srcElement.getAttribute('data-class');
+    			input.dispatchEvent(new Event('change'));
+    			button.style.background = this.classes[input.value].stroke;
+    			button.textContent = e.srcElement.textContent;
+
+    			select.classList.toggle('active');
+    		});
+
+    		document.addEventListener('click', (e) => {
+    			select.classList.remove('active');
+    		});
+
+    		document.querySelector('.openlime-layers-menu').appendChild(edit);
+
+    		let tools = edit.querySelector('.openlime-annotation-edit-tools');
+
+    		let pin = await Skin.appendIcon(tools, '.openlime-pin');
+    		pin.addEventListener('click', (e) => { this.setTool('pin'); this.setActiveTool(pin); });
+
+    		let draw = await Skin.appendIcon(tools, '.openlime-draw');
+    		draw.addEventListener('click', (e) => { this.setTool('line'); this.setActiveTool(draw); });
+
+
+    		//		let pen = await Skin.appendIcon(tools, '.openlime-pen'); 
+    		//		pen.addEventListener('click', (e) => { this.setTool('pen'); setActive(pen); });
+
+    		let erase = await Skin.appendIcon(tools, '.openlime-erase');
+    		erase.addEventListener('click', (e) => { this.setTool('erase'); this.setActiveTool(erase); });
+
+    		let undo = await Skin.appendIcon(tools, '.openlime-undo');
+    		undo.addEventListener('click', (e) => { this.undo(); });
+
+    		let redo = await Skin.appendIcon(tools, '.openlime-redo');
+    		redo.addEventListener('click', (e) => { this.redo(); });
+
+    		/*		let colorpick = await Skin.appendIcon(tools, '.openlime-colorpick'); 
+    				undo.addEventListener('click', (e) => { this.pickColor(); }); */
+
+    		let label = edit.querySelector('[name=label]');
+    		label.addEventListener('blur', (e) => { if (this.annotation.label != label.value) this.saveCurrent(); this.saveAnnotation(); });
+
+    		let descr = edit.querySelector('[name=description]');
+    		descr.addEventListener('blur', (e) => { if (this.annotation.description != descr.value) this.saveCurrent(); this.saveAnnotation(); });
+
+    		let idx = edit.querySelector('[name=idx]');
+    		idx.addEventListener('blur', (e) => { 
+    			if (this.annotation.idx != idx.value) {
+    				const svgPinIdx = this.annotation.elements[0];
+    				if(svgPinIdx) {
+    					const txt = svgPinIdx.querySelector(".pin-text");
+    					if(txt) {
+    						txt.textContent = idx.value;
+    					}
+    				}
+    				this.saveCurrent();
+    			} 
+    			this.saveAnnotation(); 
+    		});
+
+    		Object.entries(this.annotation.data).map(k => {
+    			let dataElm = edit.querySelector(`[name=data-data-${k[0]}]`);
+    			dataElm.addEventListener('blur', (e) => { if (this.annotation.data[k[0]] != dataElm.value) this.saveCurrent(); this.saveAnnotation(); });
+    		});
+
+    		let classes = edit.querySelector('[name=classes]');
+    		classes.addEventListener('change', (e) => { if (this.annotation.class != classes.value) this.saveCurrent(); this.saveAnnotation(); });
+
+    		let publish = edit.querySelector('[name=publish]');
+    		publish.addEventListener('change', (e) => { if (this.annotation.publish != publish.value) this.saveCurrent(); this.saveAnnotation(); });
+
+    		edit.classList.add('hidden');
+    		this.editWidget = edit;
+    	}
+
+    	/** @ignore */
+    	setAnnotationCurrentState(anno) {
+    		anno.state = window.structuredClone(this.viewer.canvas.getState());
+    		// Callback to add  light/lens params or other data
+    		if(this.customState) this.customState(anno);
+    	}
+
+    	/** @ignore */
+    	saveAnnotation() {
+    		let edit = this.editWidget;
+    		let anno = this.annotation;
+
+    		anno.label = edit.querySelector('[name=label]').value || '';
+    		anno.description = edit.querySelector('[name=description]').value || '';
+    		anno.idx = edit.querySelector('[name=idx]').value || '0';
+    		Object.entries(anno.data).map(k => {
+    			anno.data[k[0]] = edit.querySelector(`[name=data-data-${k[0]}]`).value || '';
+    		});		
+    		anno.publish = edit.querySelector('[name=publish]').checked ? 1 : 0;
+    		let select = edit.querySelector('[name=classes]');
+    		anno.class = select.value || '';
+
+    		let button = edit.querySelector('.openlime-select-button');
+    		button.style.background = this.classes[anno.class].stroke;
+
+    		for (let e of this.annotation.elements)
+    			e.setAttribute('data-class', anno.class);
+
+    		let post = {
+    			id: anno.id, idx: anno.idx, label: anno.label, description: anno.description, class: anno.class,
+    			publish: anno.publish, data: anno.data
+    		};
+    		if (this.enableState) post = { ...post, state: anno.state };
+    		// if (anno.light) post = { ...post, light: anno.light }; FIXME
+    		// if (anno.lens) post = { ...post, lens: anno.lens };
+
+    		//anno.bbox = anno.getBBoxFromElements();
+    		let serializer = new XMLSerializer();
+    		post.svg = `<svg xmlns="http://www.w3.org/2000/svg">
+				${anno.elements.map((s) => { s.classList.remove('selected'); return serializer.serializeToString(s) }).join("\n")}  
+				</svg>`;
+
+    		if (this.updateCallback) {
+    			let result = this.updateCallback(post);
+    			if (!result) {
+    				alert("Failed to update annotation");
+    				return;
+    			}
+    		}				//for (let c of element.children)
+    		//		a.elements.push(c);
+
+    		//update the entry
+    		let template = document.createElement('template');
+    		template.innerHTML = this.layer.createAnnotationEntry(anno);
+    		let entry = template.content.firstChild;
+    		//TODO find a better way to locate the entry!
+    		this.layer.annotationsListEntry.element.parentElement.querySelector(`[data-annotation="${anno.id}"]`).replaceWith(entry);
+    		this.layer.setSelected(anno);
+    	}
+
+    	/** @ignore */
+    	deleteSelected() {
+    		let id = this.layer.selected.values().next().value;
+    		if (id)
+    			this.deleteAnnotation(id);
+    	}
+
+    	/** @ignore */
+    	deleteAnnotation(id) {
+    		let anno = this.layer.getAnnotationById(id);
+    		if (this.deleteCallback) {
+    			if (!confirm(`Deleting annotation ${anno.label}, are you sure?`))
+    				return;
+    			let result = this.deleteCallback(anno);
+    			if (!result) {
+    				alert("Failed to delete this annotation.");
+    				return;
+    			}
+    		}
+    		//remove svg elements from the canvas
+    		this.layer.svgGroup.querySelectorAll(`[data-annotation="${anno.id}"]`).forEach(e => e.remove());
+
+    		//remove entry from the list
+    		let list = this.layer.annotationsListEntry.element.parentElement.querySelector('.openlime-list');
+    		list.querySelectorAll(`[data-annotation="${anno.id}"]`).forEach(e => e.remove());
+
+    		this.layer.annotations = this.layer.annotations.filter(a => a !== anno);
+    		this.layer.clearSelected();
+    		this.hideEditWidget();
+    	}
+
+    	/** @ignore */
+    	exportAnnotations() {
+    		let svgElement = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    		const bBox = this.layer.boundingBox();
+    		svgElement.setAttribute('viewBox', `0 0 ${bBox.xHigh-bBox.xLow} ${bBox.yHigh-bBox.yLow}`);
+    		let style = Util.createSVGElement('style');
+    		style.textContent = this.layer.style;
+    		svgElement.appendChild(style);
+    		let serializer = new XMLSerializer();
+    		//let svg = `<svg xmlns="http://www.w3.org/2000/svg">
+    		for (let anno of this.layer.annotations) {
+    			for (let e of anno.elements) {
+    				if (e.tagName == 'path') {
+    					//Inkscape nitpicks on the commas in svg path.
+    					let d = e.getAttribute('d');
+    					e.setAttribute('d', d.replaceAll(',', ' '));
+    				}
+    				svgElement.appendChild(e.cloneNode());
+    			}
+    		}
+    		let svg = serializer.serializeToString(svgElement);
+    		/*(${this.layer.annotations.map(anno => {
+    			return `<group id="${anno.id}" title="${anno.label}" data-description="${anno.description}">
+    				${anno.elements.map((s) => { 
+    					s.classList.remove('selected'); 
+    					return serializer.serializeToString(s) 
+    				}).join("\n")}
+    				</group>`;
+    		})}
+    		</svg>`; */
+
+    		///console.log(svg);
+
+    		var e = document.createElement('a');
+    		e.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(svg));
+    		e.setAttribute('download', 'annotations.svg');
+    		e.style.display = 'none';
+    		document.body.appendChild(e);
+    		e.click();
+    		document.body.removeChild(e);
+    	}
+
+    	/** @ignore */
+    	setActiveTool(e) {
+    		if (!this.editWidget) return;
+    		let tools = this.editWidget.querySelector('.openlime-annotation-edit-tools');
+    		tools.querySelectorAll('svg').forEach(a =>
+    			a.classList.remove('active'));
+    		if (e)
+    			e.classList.add('active');
+    	}
+
+    	/** @ignore */
+    	setTool(tool) {
+    		this.tool = tool;
+    		if (this.factory && this.factory.quit)
+    			this.factory.quit();
+    		if (tool) {
+    			if (!tool in this.tools)
+    				throw "Unknown editor tool: " + tool;
+
+    			this.factory = new this.tools[tool].tool(this.tools[tool]);
+    			this.factory.annotation = this.annotation;
+    			this.factory.layer = this.layer;
+    		}
+    		document.querySelector('.openlime-overlay').classList.toggle('erase', tool == 'erase');
+    		document.querySelector('.openlime-overlay').classList.toggle('crosshair', tool && tool != 'erase');
+    	}
+
+
+    	// UNDO STUFF	
+
+    	/** @ignore */
+    	undo() {
+    		let anno = this.annotation; //current annotation.
+    		if (!anno)
+    			return;
+    		if (this.factory && this.factory.undo && this.factory.undo()) {
+    			anno.needsUpdate = true;
+    			this.viewer.redraw();
+    			return;
+    		}
+
+    		if (anno.history && anno.history.length) {
+    			//FIXME TODO history will be more complicated if it has to manage multiple tools.
+    			anno.future.push(this.annoToData(anno));
+
+    			let data = anno.history.pop();
+    			this.dataToAnno(data, anno);
+
+    			anno.needsUpdate = true;
+    			this.viewer.redraw();
+    			this.updateEditWidget();
+    		}
+    	}
+
+    	/** @ignore */
+    	redo() {
+    		let anno = this.annotation; //current annotation.
+    		if (!anno)
+    			return;
+    		if (this.factory && this.factory.redo && this.factory.redo()) {
+    			anno.needsUpdate = true;
+    			this.viewer.redraw();
+    			return;
+    		}
+    		if (anno.future && anno.future.length) {
+    			anno.history.push(this.annoToData(anno));
+
+    			let data = anno.future.pop();
+    			this.dataToAnno(data, anno);
+
+    			anno.needsUpdate = true;
+    			this.viewer.redraw();
+    			this.updateEditWidget();
+    		}
+    	}
+
+    	/** @ignore */
+    	saveCurrent() {
+    		let anno = this.annotation; //current annotation.
+    		if (!anno.history)
+    			anno.history = [];
+
+    		anno.history.push(this.annoToData(anno));
+    		anno.future = [];
+    	}
+
+    	/** @ignore */
+    	annoToData(anno) {
+    		let data = {};
+    		for (let i of ['id', 'label', 'description', 'class', 'publish', 'data'])
+    			data[i] = `${anno[i] || ''}`;
+    		data.elements = anno.elements.map(e => { let n = e.cloneNode(); n.points = e.points; return n; });
+    		return data;
+    	}
+
+    	/** @ignore */
+    	dataToAnno(data, anno) {
+    		for (let i of ['id', 'label', 'description', 'class', 'publish', 'data'])
+    			anno[i] = `${data[i]}`;
+    		anno.elements = data.elements.map(e => { let n = e.cloneNode(); n.points = e.points; return n; });
+    	}
+
+
+    	// TOOLS STUFF
+
+    	/** @ignore */
+    	keyUp(e) {
+    		if (e.defaultPrevented) return;
+    		switch (e.key) {
+    			case 'Escape':
+    				if (this.tool) {
+    					this.setActiveTool();
+    					this.setTool(null);
+    					e.preventDefault();
+    				}
+    				break;
+    			case 'Delete':
+    				this.deleteSelected();
+    				break;
+    			case 'Backspace':
+    				break;
+    			case 'z':
+    				if (e.ctrlKey)
+    					this.undo();
+    				break;
+    			case 'Z':
+    				if (e.ctrlKey)
+    					this.redo();
+    				break;
+    		}
+    	}
+
+    	/** @ignore */
+    	panStart(e) {
+    		if (e.buttons != 1 || e.ctrlKey || e.altKey || e.shiftKey || e.metaKey)
+    			return;
+    		if (!['line', 'erase', 'box', 'circle'].includes(this.tool))
+    			return;
+    		this.panning = true;
+    		e.preventDefault();
+
+    		this.saveCurrent();
+
+    		const pos = this.mapToSvg(e);
+    		this.factory.create(pos, e);
+
+    		this.annotation.needsUpdate = true;
+
+    		this.viewer.redraw();
+    	}
+
+    	/** @ignore */
+    	panMove(e) {
+    		if (!this.panning)
+    			return false;
+
+    		const pos = this.mapToSvg(e);
+    		this.factory.adjust(pos, e);
+    	}
+
+    	/** @ignore */
+    	panEnd(e) {
+    		if (!this.panning)
+    			return false;
+    		this.panning = false;
+
+    		const pos = this.mapToSvg(e);
+    		let changed = this.factory.finish(pos, e);
+    		if (!changed) //nothing changed no need to keep current situation in history.
+    			this.annotation.history.pop();
+    		else
+    			this.saveAnnotation();
+    		this.annotation.needsUpdate = true;
+    		this.viewer.redraw();
+    	}
+
+    	/** @ignore */
+    	fingerHover(e) {
+    		if (this.tool != 'line')
+    			return;
+    		e.preventDefault();
+    		const pos = this.mapToSvg(e);
+    		this.factory.hover(pos, e);
+    		this.annotation.needsUpdate = true;
+    		this.viewer.redraw();
+    	}
+
+    	/** @ignore */
+    	fingerSingleTap(e) {
+    		if (!['point', 'pin', 'line', 'erase'].includes(this.tool))
+    			return;
+    		e.preventDefault();
+
+    		this.saveCurrent();
+
+    		const pos = this.mapToSvg(e);
+    		let changed = this.factory.tap(pos, e);
+    		if (!changed) //nothing changed no need to keep current situation in history.
+    			this.annotation.history.pop();
+    		else
+    			this.saveAnnotation();
+    		this.annotation.needsUpdate = true;
+
+    		this.viewer.redraw();
+    	}
+
+    	/** @ignore */
+    	fingerDoubleTap(e) {
+    		if (!['line'].includes(this.tool))
+    			return;
+    		e.preventDefault();
+
+    		this.saveCurrent();
+
+    		const pos = this.mapToSvg(e);
+    		let changed = this.factory.doubleTap(pos, e);
+    		if (!changed) //nothing changed no need to keep current situation in history.
+    			this.annotation.history.pop();
+    		else
+    			this.saveAnnotation();
+    		this.annotation.needsUpdate = true;
+
+    		this.viewer.redraw();
+    	}
+
+    	/** @ignore */
+    	mapToSvg(e) {
+    		const p = {x:e.offsetX, y: e.offsetY};
+    		const layerT = this.layer.transform;
+    		const useGL = false;
+    		const layerbb = this.layer.boundingBox();
+    		const layerSize = {w:layerbb.width(), h:layerbb.height()};
+    		//compute also size of an image pixel on screen and store in pixelSize.
+    		let pos = CoordinateSystem.fromCanvasHtmlToImage(p, this.viewer.camera, layerT, layerSize, useGL);
+    		p.x += 1;
+    		let pos1 = CoordinateSystem.fromCanvasHtmlToImage(p, this.viewer.camera, layerT, layerSize, useGL);
+    		pos.pixelSize = Math.abs(pos1.x - pos.x);
+    		return pos;
+    	}
+    }
+
+
+    /** @ignore */
+    class Point {
+    	tap(pos) {
+    		let point = Util.createSVGElement('circle', { cx: pos.x, cy: pos.y, r: 10, class: 'point' });
+    		this.annotation.elements.push(point);
+    		return true;
+    	}
+    }
+
+    /** @ignore */
+    class Pin {
+    	constructor(options) {
+    		Object.assign(this, options);
+    	}
+    	tap(pos) {
+    		const str = this.template(pos.x,pos.y);
+    		let parser = new DOMParser();
+    	    let point = parser.parseFromString(str, "image/svg+xml").documentElement;
+    //		this.annotation.elements.push(point);
+    		this.annotation.elements[0] = point;
+    		return true;
+    	}
+    }
+
+    /** @ignore */
+    class Pen {
+    	constructor() {
+    		//TODO Use this.path.points as in line, instead.
+    		this.points = [];
+    	}
+    	create(pos) {
+    		this.points.push(pos);
+    		if (this.points.length == 1) {
+    			saveCurrent;
+
+    			this.path = Util.createSVGElement('path', { d: `M${pos.x} ${pos.y}`, class: 'line' });
+    			return this.path;
+    		}
+    		let p = this.path.getAttribute('d');
+    		this.path.setAttribute('d', p + ` L${pos.x} ${pos.y}`);
+    		this.path.points = this.points;
+    	}
+    	undo() {
+    		if (!this.points.length)
+    			return;
+    		this.points.pop();
+    		let d = this.points.map((p, i) => `${i == 0 ? 'M' : 'L'}${p.x} ${p.y}`).join(' ');
+    		this.path.setAttribute('d', d);
+
+    		if (this.points.length < 2) {
+    			this.points = [];
+    			this.annotation.elements = this.annotation.elements.filter((e) => e != this.path);
+    		}
+    	}
+    }
+
+    /** @ignore */
+    class Box {
+    	constructor() {
+    		this.origin = null;
+    		this.box = null;
+    	}
+
+    	create(pos) {
+    		this.origin = pos;
+    		this.box = Util.createSVGElement('rect', { x: pos.x, y: pos.y, width: 0, height: 0, class: 'rect' });
+    		return this.box;
+    	}
+
+    	adjust(pos) {
+    		let p = this.origin;
+
+    		this.box.setAttribute('x', Math.min(p.x, pos.x));
+    		this.box.setAttribute('width', Math.abs(pos.x - p.x));
+    		this.box.setAttribute('y', Math.min(p.y, pos.y));
+    		this.box.setAttribute('height', Math.abs(pos.y - p.y));
+    	}
+
+    	finish(pos) {
+    		return this.box;
+    	}
+    }
+
+    /** @ignore */
+    class Circle {
+    	constructor() {
+    		this.origin = null;
+    		this.circle = null;
+    	}
+    	create(pos) {
+    		this.origin = pos;
+    		this.circle = Util.createSVGElement('circle', { cx: pos.x, cy: pos.y, r: 0, class: 'circle' });
+    		return this.circle;
+    	}
+    	adjust(pos) {
+    		let p = this.origin;
+    		let r = Math.hypot(pos.x - p.x, pos.y - p.y);
+    		this.circle.setAttribute('r', r);
+    	}
+    	finish() {
+    		return this.circle;
+    	}
+    }
+
+    /** @ignore */
+    class Line {
+    	constructor() {
+    		this.history = [];
+    	}
+    	create(pos) {
+    		/*if(this.segment) {
+    			this.layer.svgGroup.removeChild(this.segment);
+    			this.segment = null;
+    		}*/
+    		for (let e of this.annotation.elements) {
+    			if (!e.points || e.points.length < 2)
+    				continue;
+    			if (Line.distance(e.points[0], pos) / pos.pixelSize < 5) {
+    				e.points.reverse();
+    				this.path = e;
+    				this.path.setAttribute('d', Line.svgPath(e.points));
+    				//reverse points!
+    				this.history = [this.path.points.length];
+    				return;
+    			}
+    			if (Line.distanceToLast(e.points, pos) < 5) {
+    				this.path = e;
+    				this.adjust(pos);
+    				this.history = [this.path.points.length];
+    				return;
+    			}
+    		}
+    		this.path = Util.createSVGElement('path', { d: `M${pos.x} ${pos.y}`, class: 'line' });
+    		this.path.points = [pos];
+    		this.history = [this.path.points.length];
+    		this.annotation.elements.push(this.path);
+    	}
+
+    	tap(pos) {
+    		if (!this.path) {
+    			this.create(pos);
+    			return false;
+    		} else {
+    			if (this.adjust(pos))
+    				this.history = [this.path.points.length - 1];
+    			return true;
+    		}
+    	}
+    	doubleTap(pos) {
+    		if (!this.path)
+    			return false;
+    		if (this.adjust(pos)) {
+    			this.history = [this.path.points.length - 1];
+    			this.path = null;
+    		}
+    		return false;
+    	}
+
+    	hover(pos, event) {
+    		return;
+    	}
+    	quit() {
+    		return;
+    	}
+
+    	adjust(pos) {
+    		let gap = Line.distanceToLast(this.path.points, pos);
+    		if (gap / pos.pixelSize < 4) return false;
+
+    		this.path.points.push(pos);
+
+    		this.path.getAttribute('d');
+    		this.path.setAttribute('d', Line.svgPath(this.path.points));//d + `L${pos.x} ${pos.y}`);
+    		return true;
+    	}
+
+    	finish() {
+    		this.path.setAttribute('d', Line.svgPath(this.path.points));
+    		return true; //some changes where made!
+    	}
+
+    	undo() {
+    		if (!this.path || !this.history.length)
+    			return false;
+    		this.path.points = this.path.points.slice(0, this.history.pop());
+    		this.path.setAttribute('d', Line.svgPath(this.path.points));
+    		return true;
+    	}
+    	redo() {
+    		return false;
+    	}
+    	//TODO: smooth should be STABLE, if possible.
+    	static svgPath(points) {
+    		//return points.map((p, i) =>  `${(i == 0? "M" : "L")}${p.x} ${p.y}`).join(' '); 
+
+    		let tolerance = 1.5 * points[0].pixelSize;
+    		let tmp = simplify(points, tolerance);
+
+    		let smoothed = smooth(tmp, 90, true);
+    		return smoothToPath(smoothed);
+    		
+    	}
+    	static distanceToLast(line, point) {
+    		let last = line[line.length - 1];
+    		return Line.distance(last, point);
+    	}
+    	static distance(a, b) {
+    		let dx = a.x - b.x;
+    		let dy = a.y - b.y;
+    		return Math.sqrt(dx * dx + dy * dy);
+    	}
+    }
+
+    /** @ignore */
+    class Erase {
+    	create(pos, event) { this.erased = false; this.erase(pos, event); }
+    	adjust(pos, event) { this.erase(pos, event); }
+    	finish(pos, event) { return this.erase(pos, event); } //true if some points where removed.
+    	tap(pos, event) { return this.erase(pos, event); }
+    	erase(pos, event) {
+    		for (let e of this.annotation.elements) {
+    			if (e == event.originSrc) {
+    				e.points = [];
+    				this.erased = true;
+    				continue;
+    			}
+
+    			let points = e.points;
+    			if (!points || !points.length)
+    				continue;
+
+    			if (Line.distanceToLast(points, pos) < 10)
+    				this.erased = true, points.pop();
+    			else if (Line.distance(points[0], pos) < 10)
+    				this.erased = true, points.shift();
+    			else
+    				continue;
+
+    			if (points.length <= 2) {
+    				e.points = [];
+    				e.setAttribute('d', '');
+    				this.annotation.needsUpdate = true;
+    				this.erased = true;
+    				continue;
+    			}
+
+    			e.setAttribute('d', Line.svgPath(points));
+    		}
+    		this.annotation.elements = this.annotation.elements.filter(e => { return !e.points || e.points.length > 2; });
+    		return this.erased;
+    	}
+    }
+
+    /**
+     * The **ShaderCombiner** class specifies a shader that computes an output texture as a combination of two input textures.
+     * It defines four modes (shader behaviors): 
+     * * 'first' assigns the first texture as output (draws the first texture). The color of each fragment is cout=c1
+     * * 'second' assigns the second texture as output (draws the second texture). The color of each fragment is cout=c2
+     * * 'mean' calculates the average color of the two textures. The color of each fragment is cout=(c1+c2)/2.0
+     * * 'diff' calculates the difference between the color of the textures. Color of each fragment is cout=c2.rgb-c1.rgb
+     * 
+     * Extends {@link Shader}.
+     */
+    class ShaderUnsharp extends Shader {
+    	/**
+    	 * Instantiates a **ShaderCombiner** class.
+    	 * An object literal with ShaderCombiner `options` can be specified.
+    	 * @param {Object} [options] An object literal with options that inherits from {@link Shader}.
+    	 */
+    	constructor(options) {
+    		super(options);
+
+    		this.mode = 'LUM', //Lighten Darken Contrast Inversion HSV components LCh components
+    		this.modes = ['LUM', 'NUM', 'IUM'];
+    		this.samplers = [
+    			{ id:0, name:'source', type:'vec3' },
+    			{ id:1, name:'normals', type:'vec3' },
+    		];
+    		this.uniforms = {
+    			light: { type: 'vec3', needsUpdate: true, size: 3, value: [0, 0, 1] },
+    		};
+
+    		this.create_blur_body = {
+    			'LUM': `
+				vec4 src = texture(source, coord);
+				src.rgb = src.rgb * RGB2LUV;
+			`,
+    			'NUM': `
+				vec4 src = texture(normals, coord);
+			`,
+    			'IUM': `
+				vec4 src = texture(source, coord);
+			`,
+    		};
+
+    		this.data_body = {
+    			'LUM': `
+				vec3 color_luv = color.rgb * RGB2LUV;
+				color_luv[0] = color_luv[0] + k * (color_luv[0] - blur[0]);
+				vec4 color_unsharp;
+				color_unsharp.rgb = color_luv.rgb * LUV2RGB;
+			`,
+    			'NUM': `
+				vec3 n = texture(normals, v_texcoord).xyz;
+				vec3 n_unsharp = n + k * (n - blur.xyz);
+				vec4 color_unsharp = color * (max(dot(n_unsharp,light), 0.0) + ka);
+			`,
+    			'IUM': `
+				vec4 color_unsharp = color + k * (color - blur);
+			`,
+    		};
+    	}
+
+    	setLight(light) {
+    		if(!this.uniforms.light) 
+    			throw "Shader not initialized, wait on layer ready event for setLight."
+
+    		let x = light[0];
+    		let y = light[1];
+    		let z = Math.sqrt(1 - x*x - y*y);
+    		this.setUniform('light', [x,y,z]);
+    	}
+
+    	setMode(mode) {
+    		if(!(this.modes.includes(mode)))
+    			throw Error("Unknown mode: " + mode);
+    		this.mode = mode;
+    		this.needsUpdate = true;
+    	}
+
+    	/** @ignore */
+    	fragShaderSrc(gl) {
+    		let gl2 = !(gl instanceof WebGLRenderingContext);
+
+    		let blur_mode = 'window';
+    		let blur_operations = {
+
+    			'window': `
+				float dx = 1.0 / tileSize.x;
+				float dy = 1.0 / tileSize.y;
+				float win_size = 3.0;
+				float win = win_size / 2.0 - 0.5;
+				vec4 blur = vec4(0, 0, 0, 1);
+				for (float x = -win; x <= win; x++) {
+					for (float y = -win; y <= win; y++) {
+						vec2 coord = vec2(v_texcoord.x + dx*x, v_texcoord.y + dy*y);
+						${this.create_blur_body[this.mode]}
+						blur += src;
+					}
+				}
+				blur /= (win_size * win_size);
+			`,
+
+    			'gaussian': `
+				float dx = 1.0 / tileSize.x;
+				float dy = 1.0 / tileSize.y;
+				float sigma = 3.0;
+				float win = floor(3 * sigma);
+				float PI = 3.141529;
+				vec4 blur = vec4(0, 0, 0, 1);
+				for (float x = -win; x <= win; x++) {
+					for (float y = -win; y <= win; y++) {
+						vec2 coord = vec2(v_texcoord.x + dx*x, v_texcoord.y + dy*y);
+						float g = exp(-(x*x + y*y)/(2.0 * sigma * sigma)) / (2.0 * PI * sigma * sigma);
+						${this.create_blur_body[this.mode]}
+						blur += src * g;
+					}
+				}
+			`,
+
+    			'mipmaps': `
+				float bias = 1.0;
+				vec4 blur = texture(source, v_texcoord, bias);
+			`,
+    		};
+    		let blur_operation = blur_operations[blur_mode];
+
+    		return `
+
+${gl2? 'in' : 'varying'} vec2 v_texcoord;
+
+uniform sampler2D source;
+uniform sampler2D normals;
+uniform vec3 light;
+float k = 2.0;
+float ka = 0.0;
+
+const mat3 RGB2LUV = mat3(0.299, -0.14713, 0.615, 0.587, -0.28886, -0.51499, 0.144, 0.436, -0.10001);
+const mat3 LUV2RGB = mat3(1.0, 1.0, 1.0, 0.0, -0.39465, 2.03211, 1.13983, -0.5806, 0.0);
+
+vec4 create_blur() {
+	${blur_operation}
+	return blur;
+}
+
+vec4 data() {
+	vec4 color = texture(source, v_texcoord);
+	vec4 blur = create_blur();
+	${this.data_body[this.mode]}
+	color_unsharp.a = color.a;
+	return color_unsharp;
+}
+`;
+    	}
+
+    	/** @ignore */
+    	vertShaderSrc(gl) {
+    		let gl2 = !(gl instanceof WebGLRenderingContext);
+    		return `${gl2? '#version 300 es':''}
+
+
+${gl2? 'in' : 'attribute'} vec4 a_position;
+${gl2? 'in' : 'attribute'} vec2 a_texcoord;
+
+${gl2? 'out' : 'varying'} vec2 v_texcoord;
+
+void main() {
+	gl_Position = a_position;
+	v_texcoord = a_texcoord;
+}`;
+    	}
+    }
+
+    /**
+     * The **ShaderCombiner** class specifies a shader that computes an output texture as a combination of two input textures.
+     * It defines four modes (shader behaviors): 
+     * * 'first' assigns the first texture as output (draws the first texture). The color of each fragment is cout=c1
+     * * 'second' assigns the second texture as output (draws the second texture). The color of each fragment is cout=c2
+     * * 'mean' calculates the average color of the two textures. The color of each fragment is cout=(c1+c2)/2.0
+     * * 'diff' calculates the difference between the color of the textures. Color of each fragment is cout=c2.rgb-c1.rgb
+     * 
+     * Extends {@link Shader}.
+     */
+    class ShaderBlur extends Shader {
+    	/**
+    	 * Instantiates a **ShaderCombiner** class.
+    	 * An object literal with ShaderCombiner `options` can be specified.
+    	 * @param {Object} [options] An object literal with options that inherits from {@link Shader}.
+    	 */
+    	constructor(options) {
+    		super(options);
+
+    		this.mode = 'window', //Lighten Darken Contrast Inversion HSV components LCh components
+    		// this.modes = ['window', 'gaussian', 'mipmaps'];
+    		this.modes = ['window'];
+    		this.samplers = [
+    			{ id:0, name:'source', type:'vec3' },
+    		];
+    		this.uniforms = {
+    			light: { type: 'vec3', needsUpdate: true, size: 3, value: [0.0, 0.0, 1] },
+    		};
+
+    		this.blur_operations = {
+
+    			'window': `
+				float dx = 1.0 / tileSize.x;
+				float dy = 1.0 / tileSize.y;
+				float win_size = 9.0;
+				float win = win_size / 2.0 - 0.5;
+				vec4 blur = vec4(0, 0, 0, 1);
+				for (float x = -win; x <= win; x++) {
+					for (float y = -win; y <= win; y++) {
+						vec2 coord = vec2(v_texcoord.x + dx*x, v_texcoord.y + dy*y);
+						blur += texture(source, coord);
+					}
+				}
+				blur /= (win_size * win_size);
+			`,
+
+    			'gaussian': `
+				.........
+			`,
+
+    			'mipmaps': `
+				float bias = 1.0;
+				vec4 blur = texture(source, v_texcoord, bias);
+			`,
+    		};
+    	}
+
+    	setLight(light) {
+    		if(!this.uniforms.light) 
+    			throw "Shader not initialized, wait on layer ready event for setLight."
+
+    		let x = light[0];
+    		let y = light[1];
+    		let z = Math.sqrt(1 - x*x - y*y);
+    		this.setUniform('light', [x,y,z]);
+    	}
+
+    	setMode(mode) {
+    		if(!(this.modes.includes(mode)))
+    			throw Error("Unknown mode: " + mode);
+    		this.mode = mode;
+    		this.needsUpdate = true;
+    	}
+
+    	/** @ignore */
+    	fragShaderSrc(gl) {
+    		let gl2 = !(gl instanceof WebGLRenderingContext);
+    		let blur_operation = this.blur_operations[this.mode];
+
+    		return `
+
+${gl2? 'in' : 'varying'} vec2 v_texcoord;
+
+uniform sampler2D source;
+
+vec4 create_blur() {
+	${blur_operation}
+	return blur;
+}
+
+vec4 data() {
+	vec4 blur = create_blur();
+	return blur;
+}
+`;
+    	}
+
+    	/** @ignore */
+    	vertShaderSrc(gl) {
+    		let gl2 = !(gl instanceof WebGLRenderingContext);
+    		return `${gl2? '#version 300 es':''}
+
+
+${gl2? 'in' : 'attribute'} vec4 a_position;
+${gl2? 'in' : 'attribute'} vec2 a_texcoord;
+
+${gl2? 'out' : 'varying'} vec2 v_texcoord;
+
+void main() {
+	gl_Position = a_position;
+	v_texcoord = a_texcoord;
+}`;
+    	}
+    }
+
+	class AnnotationEditor {
     	/**
     	 * Instatiates a AnnotationEditor object.
     	 * @param {Viewer} viewer The OpenLIME viewer.
@@ -14849,412 +15334,7 @@ void main() {
     	}
     }
 
-
-    /** @ignore */
-    class Point {
-    	tap(pos) {
-    		let point = Util.createSVGElement('circle', { cx: pos.x, cy: pos.y, r: 10, class: 'point' });
-    		this.annotation.elements.push(point);
-    		return true;
-    	}
-    }
-
-    /** @ignore */
-    class Pin {
-    	constructor(options) {
-    		Object.assign(this, options);
-    	}
-    	tap(pos) {
-    		const str = this.template(pos.x,pos.y);
-    		let parser = new DOMParser();
-    	    let point = parser.parseFromString(str, "image/svg+xml").documentElement;
-    		this.annotation.elements.push(point);
-    		// this.annotation.elements[0] = point;
-    		return true;
-    	}
-    }
-
-    /** @ignore */
-    class Pen {
-    	constructor() {
-    		//TODO Use this.path.points as in line, instead.
-    		this.points = [];
-    	}
-    	create(pos) {
-    		this.points.push(pos);
-    		if (this.points.length == 1) {
-    			this.saveCurrent();
-
-    			this.path = Util.createSVGElement('path', { d: `M${pos.x} ${pos.y}`, class: 'line' });
-    			return this.path;
-    		}
-    		let p = this.path.getAttribute('d');
-    		this.path.setAttribute('d', p + ` L${pos.x} ${pos.y}`);
-    		this.path.points = this.points;
-    	}
-
-
-    	tap(pos) {
-    		if (!this.path) {
-    			this.create(pos);
-    			return false;
-    		} else {
-    			if (this.adjust(pos))
-    				this.history = [this.path.points.length - 1];
-    			return true;
-    		}
-    	}
-
-    	adjust(pos) {
-    		// let gap = Line.distanceToLast(this.path.points, pos);
-    		// if (gap / pos.pixelSize < 4) return false;
-
-    		// this.path.points.push(pos);
-
-    		// let d = this.path.getAttribute('d');
-    		// this.path.setAttribute('d', Line.svgPath(this.path.points));//d + `L${pos.x} ${pos.y}`);
-    		return true;
-    	}
-
-
-
-    	undo() {
-    		if (!this.points.length)
-    			return;
-    		this.points.pop();
-    		let d = this.points.map((p, i) => `${i == 0 ? 'M' : 'L'}${p.x} ${p.y}`).join(' ');
-    		this.path.setAttribute('d', d);
-
-    		if (this.points.length < 2) {
-    			this.points = [];
-    			this.annotation.elements = this.annotation.elements.filter((e) => e != this.path);
-    		}
-    	}
-    }
-
-    /** @ignore */
-    class Box {
-    	constructor() {
-    		this.origin = null;
-    		this.box = null;
-    	}
-
-    	create(pos) {
-    		this.origin = pos;
-    		this.box = Util.createSVGElement('rect', { x: pos.x, y: pos.y, width: 0, height: 0, class: 'rect' });
-    		return this.box;
-    	}
-
-    	adjust(pos) {
-    		let p = this.origin;
-
-    		this.box.setAttribute('x', Math.min(p.x, pos.x));
-    		this.box.setAttribute('width', Math.abs(pos.x - p.x));
-    		this.box.setAttribute('y', Math.min(p.y, pos.y));
-    		this.box.setAttribute('height', Math.abs(pos.y - p.y));
-    	}
-
-    	finish(pos) {
-    		return this.box;
-    	}
-    }
-
-    /** @ignore */
-    class Circle {
-    	constructor() {
-    		this.origin = null;
-    		this.circle = null;
-    	}
-    	create(pos) {
-    		this.origin = pos;
-    		this.circle = Util.createSVGElement('circle', { cx: pos.x, cy: pos.y, r: 0, class: 'circle' });
-    		return this.circle;
-    	}
-    	adjust(pos) {
-    		let p = this.origin;
-    		let r = Math.hypot(pos.x - p.x, pos.y - p.y);
-    		this.circle.setAttribute('r', r);
-    	}
-    	finish() {
-    		return this.circle;
-    	}
-    }
-
-    /** @ignore */
-    class Line {
-    	constructor() {
-    		this.history = [];
-    	}
-    	create(pos) {
-    		/*if(this.segment) {
-    			this.layer.svgGroup.removeChild(this.segment);
-    			this.segment = null;
-    		}*/
-    		for (let e of this.annotation.elements) {
-    			if (!e.points || e.points.length < 2)
-    				continue;
-    			if (Line.distance(e.points[0], pos) / pos.pixelSize < 5) {
-    				e.points.reverse();
-    				this.path = e;
-    				this.path.setAttribute('d', Line.svgPath(e.points));
-    				//reverse points!
-    				this.history = [this.path.points.length];
-    				return;
-    			}
-    			if (Line.distanceToLast(e.points, pos) < 5) {
-    				this.path = e;
-    				this.adjust(pos);
-    				this.history = [this.path.points.length];
-    				return;
-    			}
-    		}
-    		this.path = Util.createSVGElement('path', { d: `M${pos.x} ${pos.y}`, class: 'line' });
-    		this.path.points = [pos];
-    		this.history = [this.path.points.length];
-    		this.annotation.elements.push(this.path);
-    	}
-
-    	tap(pos) {
-    		if (!this.path) {
-    			this.create(pos);
-    			return false;
-    		} else {
-    			if (this.adjust(pos))
-    				this.history = [this.path.points.length - 1];
-    			return true;
-    		}
-    	}
-    	doubleTap(pos) {
-    		if (!this.path)
-    			return false;
-    		if (this.adjust(pos)) {
-    			this.history = [this.path.points.length - 1];
-    			this.path = null;
-    		}
-    		return false;
-    	}
-
-    	hover(pos, event) {
-    		return;
-    	}
-    	quit() {
-    		return;
-    	}
-
-    	adjust(pos) {
-    		let gap = Line.distanceToLast(this.path.points, pos);
-    		if (gap / pos.pixelSize < 4) return false;
-
-    		this.path.points.push(pos);
-
-    		this.path.getAttribute('d');
-    		this.path.setAttribute('d', Line.svgPath(this.path.points));//d + `L${pos.x} ${pos.y}`);
-    		return true;
-    	}
-
-    	finish() {
-    		this.path.setAttribute('d', Line.svgPath(this.path.points));
-    		return true; //some changes where made!
-    	}
-
-    	undo() {
-    		if (!this.path || !this.history.length)
-    			return false;
-    		this.path.points = this.path.points.slice(0, this.history.pop());
-    		this.path.setAttribute('d', Line.svgPath(this.path.points));
-    		return true;
-    	}
-    	redo() {
-    		return false;
-    	}
-    	//TODO: smooth should be STABLE, if possible.
-    	static svgPath(points) {
-    		//return points.map((p, i) =>  `${(i == 0? "M" : "L")}${p.x} ${p.y}`).join(' '); 
-
-    		let tolerance = 1.5 * points[0].pixelSize;
-    		let tmp = simplify(points, tolerance);
-
-    		let smoothed = smooth(tmp, 90, true);
-    		return smoothToPath(smoothed);
-    		
-    	}
-    	static distanceToLast(line, point) {
-    		let last = line[line.length - 1];
-    		return Line.distance(last, point);
-    	}
-    	static distance(a, b) {
-    		let dx = a.x - b.x;
-    		let dy = a.y - b.y;
-    		return Math.sqrt(dx * dx + dy * dy);
-    	}
-    }
-
-    /** @ignore */
-    class Erase {
-    	create(pos, event) { this.erased = false; this.erase(pos, event); }
-    	adjust(pos, event) { this.erase(pos, event); }
-    	finish(pos, event) { return this.erase(pos, event); } //true if some points where removed.
-    	tap(pos, event) { return this.erase(pos, event); }
-    	erase(pos, event) {
-    		for (let e of this.annotation.elements) {
-    			if (e == event.originSrc) {
-    				e.points = [];
-    				this.erased = true;
-    				continue;
-    			}
-
-    			let points = e.points;
-    			if (!points || !points.length)
-    				continue;
-
-    			if (Line.distanceToLast(points, pos) < 10)
-    				this.erased = true, points.pop();
-    			else if (Line.distance(points[0], pos) < 10)
-    				this.erased = true, points.shift();
-    			else
-    				continue;
-
-    			if (points.length <= 2) {
-    				e.points = [];
-    				e.setAttribute('d', '');
-    				this.annotation.needsUpdate = true;
-    				this.erased = true;
-    				continue;
-    			}
-
-    			e.setAttribute('d', Line.svgPath(points));
-    		}
-    		this.annotation.elements = this.annotation.elements.filter(e => { return !e.points || e.points.length > 2; });
-    		return this.erased;
-    	}
-    }
-
-    /**
-     * Extends {@link Shader}, initialized with a Neural .json (
-    **/
-     
-    class ShaderPS extends Shader {
-    	constructor(options) {
-    		super({});
-
-    		Object.assign(this, {
-    			modes: ['albedo', 'cavity', 'curvature', 'him', 'normals', 'outlim', 'residual', 'shim'],
-    			mode: 'albedo',
-
-    			nplanes: null,	 //number of coefficient planes
-
-    			scale: null,	  //factor and bias are used to dequantize coefficient planes.
-    			bias: null,
-
-    		});
-    		Object.assign(this, options);
-
-    		this.samplers = [];
-            for (let i = 0; i < this.modes.length; i++)
-                this.samplers.push({ id:i, name:this.modes[i], type:'vec3' });
-
-            if (this.mask)
-                this.samplers.push({ id:this.samplers.length, name:'mask', type:'vec3' });
-
-    	}
-
-    	createProgram(gl) {
-    		super.createProgram(gl);
-    		this.position_location = gl.getAttribLocation(this.program, "a_position");
-    		this.texcoord_location = gl.getAttribLocation(this.program, "a_texcoord");		
-    	}
-
-    	fragShaderSrc(gl) {
-            let gl2 = !(gl instanceof WebGLRenderingContext);
-
-            let str;
-
-            str = `
-
-uniform sampler2D ${this.mode};
-${gl2? 'in' : 'varying'} vec2 v_texcoord;`;
-
-            str +=`
-
-vec4 data(vec2 v_texcoord) {
-    return texture${gl2?'':'2D'}(${this.mode}, v_texcoord);
-}
-`;
-    		return str;
-    	}
-
-    }
-
-    /**
-     * The class LayerImage is derived from Layer and it is responsible for the rendering of simple images.
-     * 
-     * @example
-     * // Create an image layer and add it to the canvans
-     * const layer = new OpenLIME.Layer({
-     *     layout: 'image',
-     *     type: 'image',
-     *     url: '../../assets/lime/image/lime.jpg'
-     * });
-     * lime.addLayer('Base', layer);
-     */
-    class LayerPS extends Layer {
-    	/**
-     	* Displays a simple image.
-     	* An object literal with Layer `options` can be specified.
-    	* The class LayerImage can also be instantiated via the Layer parent class and `options.type='image'`.
-     	*
-    	  Extends {@link Layer}.
-     	* @param {Object} options an object literal with Layer options {@link Layer}, but `options.url` and `options.layout` are required.
-     	* @param {string} options.url The URL of the image
-     	* @param {(string|Layout)} options.layout='image' The layout (the format of the input raster images).
-     	*/
-    	constructor(options) {	
-    		super(options);
-
-    		if(Object.keys(this.rasters).length != 0)
-    			throw "Rasters options should be empty!";
-
-    		if(!this.modes)
-    			this.modes = ['albedo', 'cavity', 'curvature', 'him', 'normals', 'outlim', 'residual', 'shim'];
-
-    		// use url for reference, use this.modes for actual urls
-    		let textureUrls = [];
-    		for (let mode of this.modes)
-    			textureUrls.push(this.layout.imageUrl(this.url, mode));
-
-    		if(this.mask) { // ITARZOOM must include normals and currently has a limitation: loads the entire tile 
-    			let url;
-    			if (typeof this.mask === 'string')
-    				url = this.mask;
-    			else
-    				url = this.layout.imageUrl(this.url, 'mask');	
-    			textureUrls.push(url);		
-    		}
-
-    		this.layout.setUrls(textureUrls);
-
-    		const rasterFormat = this.format != null ? this.format : 'vec4';
-    		for (let url of textureUrls) {
-    			let raster = new Raster$1({ format: rasterFormat }); //FIXME select format for GEO stuff
-    			this.rasters.push(raster);
-    		}
-
-    		let shaderOptions = {
-    			mask: this.mask,
-    			modes: this.modes,
-    		};
-
-
-    		let shader = new ShaderPS(shaderOptions);
-    		
-    		this.shaders = {'ps': shader };
-    		this.setShader('ps');
-    	}
-    }
-
-    Layer.prototype.types['ps'] = (options) => { return new LayerPS(options); };
-
-    exports.AnnotationEditor = AnnotationEditor;
+	exports.AnnotationEditor = AnnotationEditor;
     exports.BoundingBox = BoundingBox;
     exports.Camera = Camera;
     exports.Canvas = Canvas;
@@ -15267,19 +15347,18 @@ vec4 data(vec2 v_texcoord) {
     exports.ControllerLens = ControllerLens;
     exports.ControllerPanZoom = ControllerPanZoom;
     exports.CoordinateSystem = CoordinateSystem;
+    exports.EditorSvgAnnotation = EditorSvgAnnotation;
     exports.FocusContext = FocusContext;
     exports.HSH = HSH;
     exports.Layer = Layer;
     exports.LayerAnnotation = LayerAnnotation;
     exports.LayerAnnotationImage = LayerAnnotationImage;
     exports.LayerBRDF = LayerBRDF;
-    exports.LayerBRDFIkehata = LayerBRDFIkehata;
     exports.LayerCombiner = LayerCombiner;
     exports.LayerImage = LayerImage;
     exports.LayerLens = LayerLens;
     exports.LayerMaskedImage = LayerMaskedImage;
     exports.LayerNeuralRTI = LayerNeuralRTI;
-    exports.LayerPS = LayerPS;
     exports.LayerRTI = LayerRTI;
     exports.LayerSvgAnnotation = LayerSvgAnnotation;
     exports.Layout = Layout;
@@ -15289,13 +15368,13 @@ vec4 data(vec2 v_texcoord) {
     exports.LensDashboardNavigator = LensDashboardNavigator;
     exports.LensDashboardNavigatorRadial = LensDashboardNavigatorRadial;
     exports.PointerManager = PointerManager;
-    exports.Raster = Raster$1;
+    exports.Raster = Raster;
     exports.RenderingMode = RenderingMode;
     exports.Ruler = Ruler;
     exports.ScaleBar = ScaleBar;
     exports.Shader = Shader;
     exports.ShaderBRDF = ShaderBRDF;
-    exports.ShaderBRDFIkehata = ShaderBRDFIkehata;
+    exports.ShaderBlur = ShaderBlur;
     exports.ShaderCombiner = ShaderCombiner;
     exports.ShaderFilter = ShaderFilter;
     exports.ShaderFilterColormap = ShaderFilterColormap;
@@ -15306,6 +15385,7 @@ vec4 data(vec2 v_texcoord) {
     exports.ShaderGammaFilter = ShaderGammaFilter;
     exports.ShaderNeural = ShaderNeural;
     exports.ShaderRTI = ShaderRTI;
+    exports.ShaderUnsharp = ShaderUnsharp;
     exports.Skin = Skin;
     exports.Tile = Tile;
     exports.Transform = Transform;

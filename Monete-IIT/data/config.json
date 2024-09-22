@@ -1,0 +1,91 @@
+[
+    {
+        "coin": "A1C1",
+        "rot": 0.0,
+        "thetaMin": 0.0
+    },
+
+    {
+        "coin": "A1C2",
+        "rot": 0.0,
+        "thetaMin": 0.0
+    },
+
+    {
+        "coin": "A1C3",
+        "rot": 0.0,
+        "thetaMin": 0.0
+    },
+
+    {
+        "coin": "A2C1",
+        "rot": 0.0,
+        "thetaMin": 0.0
+    },
+
+    {
+        "coin": "A2C2",
+        "rot": 0.0,
+        "thetaMin": 0.0
+    },
+
+    {
+        "coin": "A2C3",
+        "rot": 0.0,
+        "thetaMin": 0.0
+    },
+
+    {
+        "coin": "A2C4",
+        "rot": 0.0,
+        "thetaMin": 0.0
+    },
+
+    {
+        "coin": "A3C1",
+        "rot": 0.0,
+        "thetaMin": 0.0
+    },
+
+    {
+        "coin": "A3C2",
+        "rot": 0.0,
+        "thetaMin": 0.0
+    },
+
+    {
+        "coin": "A3C3",
+        "rot": 0.0,
+        "thetaMin": 0.0
+    },
+
+    {
+        "coin": "A3C4",
+        "rot": 0.0,
+        "thetaMin": 0.0
+    },
+
+    {
+        "coin": "A4C1",
+        "rot": 0.0,
+        "thetaMin": 0.0
+    },
+
+    {
+        "coin": "A4C2",
+        "rot": 0.0,
+        "thetaMin": 0.0
+    },
+
+    {
+        "coin": "A4C3",
+        "rot": 0.0,
+        "thetaMin": 0.0
+    },
+
+    {
+        "coin": "A4C4",
+        "rot": 0.0,
+        "thetaMin": 0.0
+    }
+]
