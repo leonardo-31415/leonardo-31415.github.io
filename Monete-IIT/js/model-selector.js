@@ -51,7 +51,7 @@ export default class ModelSelector {
         const form = document.createElement('form');
         form.style.width = '180px';
         const label_coin = document.createElement('label');
-        label_coin.innerHTML = 'Coin:';
+        label_coin.innerHTML = 'Coin (ID-code):';
         const select_coin = document.createElement('select');
         select_coin.style.width = '100%';
         const label_side = document.createElement('label');
