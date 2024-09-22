@@ -2,90 +2,105 @@
     {
         "coin": "A1C1",
         "rot": 0.0,
-        "thetaMin": 0.0
+        "thetaMin": 0.0,
+        "code": "579693"
     },
 
     {
         "coin": "A1C2",
         "rot": 0.0,
-        "thetaMin": 0.0
+        "thetaMin": 0.0,
+        "code": "570121.2"
     },
 
     {
         "coin": "A1C3",
         "rot": 0.0,
-        "thetaMin": 0.0
+        "thetaMin": 0.0,
+        "code": "582404" 
     },
 
     {
         "coin": "A2C1",
         "rot": 0.0,
-        "thetaMin": 0.0
+        "thetaMin": 0.0,
+        "code": "587202"
     },
 
     {
         "coin": "A2C2",
         "rot": 0.0,
-        "thetaMin": 0.0
+        "thetaMin": 0.0,
+        "code": "570103.3"
     },
 
     {
         "coin": "A2C3",
         "rot": 0.0,
-        "thetaMin": 0.0
+        "thetaMin": 0.0,
+        "code": ""
     },
 
     {
         "coin": "A2C4",
         "rot": 0.0,
-        "thetaMin": 0.0
+        "thetaMin": 0.0,
+        "code": "587194"
     },
 
     {
         "coin": "A3C1",
         "rot": 0.0,
-        "thetaMin": 0.0
+        "thetaMin": 0.0,
+        "code": "579666"
     },
 
     {
         "coin": "A3C2",
         "rot": 0.0,
-        "thetaMin": 0.0
+        "thetaMin": 0.0,
+        "code": "582410"
     },
 
     {
         "coin": "A3C3",
         "rot": 0.0,
-        "thetaMin": 0.0
+        "thetaMin": 0.0,
+        "code": "20.S239-2.2497"
     },
 
     {
         "coin": "A3C4",
         "rot": 0.0,
-        "thetaMin": 0.0
+        "thetaMin": 0.0,
+        "code": "579679"
     },
 
     {
         "coin": "A4C1",
         "rot": 0.0,
-        "thetaMin": 0.0
+        "thetaMin": 0.0,
+        "code": ""
     },
 
     {
         "coin": "A4C2",
         "rot": 0.0,
-        "thetaMin": 0.0
+        "thetaMin": 0.0,
+        "code": ""
     },
 
     {
         "coin": "A4C3",
         "rot": 0.0,
-        "thetaMin": 0.0
+        "thetaMin": 0.0,
+        "code": ""
     },
 
     {
         "coin": "A4C4",
         "rot": 0.0,
-        "thetaMin": 0.0
+        "thetaMin": 0.0,
+        "code": ""
     }
 ]

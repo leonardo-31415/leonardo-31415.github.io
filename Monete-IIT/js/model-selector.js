@@ -28,7 +28,7 @@ export default class ModelSelector {
 
         let c, s, r;
 
-        c = coin;
+        c = coin.substr(0,coin.indexOf('(')-1);
 
         if (range.toLowerCase() == 'visible')
             r = 'VIS';
@@ -65,7 +65,7 @@ export default class ModelSelector {
         // select coin
         for (const m of this.config) {
             const option = document.createElement('option');
-            option.innerHTML = m.coin;
+            option.innerHTML = `${m.coin} (${m.code})`;
             select_coin.appendChild(option);
         }
         // select side
