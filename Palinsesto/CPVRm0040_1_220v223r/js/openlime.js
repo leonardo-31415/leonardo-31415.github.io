@@ -8976,7 +8976,8 @@ color = vec4(vec3(dot(light, normal)), 1);
 
 			if (this.albedo == true && this.mode == 'stress')
 				str += `
-	color = color - texture(albedo, v_texcoord) + texture(stress, v_texcoord);
+	vec3 n = texture(normals,v_texcoord).xyz * 2.0 - 1.0;
+	color = color + dot(light,n) * (- texture(albedo, v_texcoord) + texture(stress, v_texcoord));
 `;
     		str += `
 	return color;
